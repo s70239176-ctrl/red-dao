@@ -377,11 +377,14 @@ export default function App() {
     if(!contractAddr){notify('Proposal has no target address',false);return}
     notify('Preparing transaction…')
     try{
+      notify('Step 1: loading modules…')
       const {JSONRpcProvider}=await import('opnet')
       const {TransactionFactory}=await import('@btc-vision/transaction')
+      notify('Step 2: fetching UTXOs for '+addr.slice(0,12)+'…')
       const provider=new JSONRpcProvider('https://testnet.opnet.org',BTC_TESTNET as never)
       const utxos=await provider.utxoManager.getUTXOs({address:addr,mergePendingUTXOs:false,filterSpentUTXOs:true})
       if(!utxos?.length) throw new Error(`No UTXOs for ${addr} — fund wallet with testnet BTC first`)
+      notify(`Step 3: wallet signing (${utxos.length} UTXOs)…`)
       const calldata=Buffer.from(support===0?encodeExec(p.proposalId):encodeVote(p.proposalId,support))
       const factory=new TransactionFactory()
       const signed=await factory.signInteraction({
@@ -392,7 +395,11 @@ export default function App() {
       if(signed.fundingTransaction) await provider.sendRawTransaction(signed.fundingTransaction,false)
       await provider.sendRawTransaction(signed.interactionTransaction,false)
       notify(`${support===0?'Execute':['','FOR','AGAINST','ABSTAIN'][support]} transaction broadcast ✓`)
-    }catch(e:unknown){notify((e as Error).message??'Transaction failed',false)}
+    }catch(e:unknown){
+      const err=e as Error
+      console.error('[DAO] vote/exec error:',err,err?.stack)
+      notify(err.message??'Transaction failed',false)
+    }
   },[address,notify])
 
   useEffect(()=>{
