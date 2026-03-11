@@ -28,8 +28,7 @@ const C = {
 
 const STATE_COLOR: Record<number, string> = { 0:'#6b7280', 1:'#e8a930', 2:'#34d399', 3:'#f87171', 4:'#60a5fa', 5:'#2e3347' }
 
-// Inlined to avoid bundling @btc-vision/bitcoin (not in Railway image)
-const BTC_TESTNET = btcNetworks.testnet, pubKeyHash:111, scriptHash:196, wif:239 }
+const BTC_TESTNET = btcNetworks.testnet
 
 const DEMO: Proposal[] = [
   { proposalId:'1', proposer:'bc1qalice', target:'0xMotoSwapRouter', btcValue:'0', voteStart:Date.now()/1e3-86400, voteEnd:Date.now()/1e3+172800, yesVotes:'680000', noVotes:'120000', abstainVotes:'50000', state:1, execAfter:0 },
