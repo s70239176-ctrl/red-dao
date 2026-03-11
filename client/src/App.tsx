@@ -15,7 +15,7 @@ const C = {
 }
 const STATE_COLOR: Record<number,string> = {0:'#6b7280',1:'#e8a930',2:'#34d399',3:'#f87171',4:'#60a5fa',5:'#2e3347'}
 // Inline network object — avoids bundling @btc-vision/bitcoin
-const BTC_TESTNET = { messagePrefix:'\x18Bitcoin Signed Message:\n', bech32:'opt', bech32Opnet:'opt', bip32:{public:70617039,private:70615956}, pubKeyHash:111, scriptHash:196, wif:239 }
+const BTC_TESTNET = { messagePrefix:'\x18Bitcoin Signed Message:\n', bech32:'tb', bech32Opnet:'opt', bip32:{public:70617039,private:70615956}, pubKeyHash:111, scriptHash:196, wif:239 }
 
 const DEMO: Proposal[] = [
   { proposalId:'1', proposer:'bc1qalice', target:'0xMotoSwapRouter', btcValue:'0', voteStart:Date.now()/1e3-86400, voteEnd:Date.now()/1e3+172800, yesVotes:'680000', noVotes:'120000', abstainVotes:'50000', state:1, execAfter:0 },
