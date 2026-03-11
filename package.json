@@ -5,7 +5,8 @@
   "scripts": {
     "build": "vite build && tsc -p tsconfig.server.json",
     "start": "node dist/server.js",
-    "dev": "concurrently \"vite\" \"tsx watch src/server.ts\""
+    "dev": "concurrently \"vite\" \"tsx watch src/server.ts\"",
+    "postinstall": "node scripts/patch-opnet.cjs"
   },
   "engines": {
     "node": ">=20.0.0"
