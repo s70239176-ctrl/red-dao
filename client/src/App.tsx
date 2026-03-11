@@ -219,7 +219,7 @@ function DeployTab({factory,walletState,address,onConnect,notify}:{factory:Facto
       if(!res.ok) throw new Error('DAOFactory.wasm not found')
       const bytecode=new Uint8Array(await res.arrayBuffer())
       const {JSONRpcProvider}=await import('opnet')
-      const provider=new JSONRpcProvider('https://testnet.opnet.org',BTC_TESTNET as never)
+      const provider=new JSONRpcProvider('https://testnet.opnet.org')
       const utxos=await provider.utxoManager.getUTXOs({address:addr,mergePendingUTXOs:false,filterSpentUTXOs:true})
       if(!utxos?.length) throw new Error(`No UTXOs for ${addr} — fund with testnet BTC first`)
       // Use deployContract directly on OPWallet — it provides signer internally
@@ -344,7 +344,7 @@ export default function App() {
     notify('Fetching UTXOs…')
     try{
       const {JSONRpcProvider}=await import('opnet')
-      const provider=new JSONRpcProvider('https://testnet.opnet.org',BTC_TESTNET as never)
+      const provider=new JSONRpcProvider('https://testnet.opnet.org')
       const utxos=await provider.utxoManager.getUTXOs({address:addr,mergePendingUTXOs:false,filterSpentUTXOs:true})
       if(!utxos?.length) throw new Error(`No UTXOs for ${addr} — fund wallet with testnet BTC first`)
       notify(`Signing (${utxos.length} UTXO${utxos.length===1?'':'s'})…`)
