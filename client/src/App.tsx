@@ -1,8 +1,31 @@
 import { useState, useEffect, useCallback } from 'react'
+import { isOPWallet } from '@btc-vision/transaction'
 import { api, type FactoryInfo, type Proposal, type RelayerStatus } from './api'
 
 const STATE_LABEL = ['PENDING', 'ACTIVE', 'SUCCEEDED', 'DEFEATED', 'EXECUTED', 'CANCELLED']
-const STATE_COLOR = ['#888', '#00ff88', '#ffcc00', '#ff4455', '#4488ff', '#666']
+
+const C = {
+  bg:         '#0b0d12',
+  bgCard:     '#0f1118',
+  bgElevated: '#161925',
+  border:     '#1c2030',
+  borderMid:  '#252c3e',
+  text:       '#dde1ec',
+  textSub:    '#6b7280',
+  textDim:    '#2e3347',
+  accent:     '#e8a930',
+  accentBg:   '#e8a93014',
+  accentRing: '#e8a93030',
+  green:      '#34d399',
+  greenBg:    '#34d39910',
+  greenRing:  '#34d39930',
+  red:        '#f87171',
+  redBg:      '#f8717110',
+  redRing:    '#f8717130',
+  blue:       '#60a5fa',
+}
+
+const STATE_COLOR: Record<number, string> = { 0:'#6b7280', 1:'#e8a930', 2:'#34d399', 3:'#f87171', 4:'#60a5fa', 5:'#2e3347' }
 
 const DEMO: Proposal[] = [
   { proposalId:'1', proposer:'bc1qalice', target:'0xMotoSwapRouter', btcValue:'0', voteStart:Date.now()/1e3-86400, voteEnd:Date.now()/1e3+172800, yesVotes:'680000', noVotes:'120000', abstainVotes:'50000', state:1, execAfter:0 },
@@ -12,479 +35,479 @@ const DEMO: Proposal[] = [
   { proposalId:'5', proposer:'bc1qdave', target:'0xTimelockGuardian', btcValue:'0', voteStart:Date.now()/1e3-2592000, voteEnd:Date.now()/1e3-2332800, yesVotes:'950000', noVotes:'12000', abstainVotes:'5000', state:4, execAfter:0 },
 ]
 
-const fmt = (n: string|number) => Number(n).toLocaleString()
+const fmt    = (n: string|number) => Number(n).toLocaleString()
 const fmtBTC = (s: string|number) => (Number(s)/1e8).toFixed(8)+' BTC'
-const pct = (v: string|number, t: string|number) => Number(t) === 0 ? '0%' : ((Number(v)/Number(t))*100).toFixed(1)+'%'
+const pct    = (v: string|number, t: string|number) => Number(t)===0 ? '0%' : ((Number(v)/Number(t))*100).toFixed(1)+'%'
+const trim   = (s: string, n=20) => s.length>n ? s.slice(0,8)+'…'+s.slice(-6) : s
 function timeLeft(end: number) {
   const s = Math.floor(end - Date.now()/1e3)
-  if (s < 0) return 'ended'
+  if (s<0) return 'ended'
   const d=Math.floor(s/86400), h=Math.floor((s%86400)/3600), m=Math.floor((s%3600)/60)
-  if (d>0) return `${d}d ${h}h`; if (h>0) return `${h}h ${m}m`; return `${m}m`
+  return d>0?`${d}d ${h}h`:h>0?`${h}h ${m}m`:`${m}m`
 }
-const short = (s: string, n=18) => s.length>n ? s.slice(0,6)+'…'+s.slice(-4) : s
 
-const mono = { fontFamily: "'Space Mono', monospace" } as const
-const serif = { fontFamily: "'Playfair Display', serif" } as const
-const card = { background:'#070707', border:'1px solid #1a1a1a', borderRadius:4, padding:16 } as const
-
-type OPWalletLike = {
-  requestAccounts(): Promise<string[]>
-  getAccounts(): Promise<string[]>
-  getNetwork(): Promise<string>
-  on(event: string, cb: (...args: unknown[]) => void): void
-  web3: {
-    deployContract(params: {
-      bytecode: Uint8Array
-      utxos: unknown[]
-      feeRate: number
-      priorityFee: bigint
-      gasSatFee: bigint
-    }): Promise<{ contractAddress: string; contractPubKey: string; transaction: [string, string] }>
-  }
+function encodeVote(proposalId: string, support: number): Uint8Array {
+  const buf = new Uint8Array(4+32+1)
+  buf[0]=0x56;buf[1]=0x78;buf[2]=0x13;buf[3]=0x88
+  const id=BigInt(proposalId)
+  for(let i=0;i<32;i++) buf[4+31-i]=Number((id>>BigInt(i*8))&0xffn)
+  buf[36]=support; return buf
 }
-const getOPWallet = (): OPWalletLike | null =>
-  (typeof window !== 'undefined' ? (window as unknown as Record<string, unknown>).opnet as OPWalletLike | undefined : undefined) ?? null
+function encodeExec(proposalId: string): Uint8Array {
+  const buf = new Uint8Array(4+32)
+  buf[0]=0xfe;buf[1]=0x0d;buf[2]=0x94;buf[3]=0x05
+  const id=BigInt(proposalId)
+  for(let i=0;i<32;i++) buf[4+31-i]=Number((id>>BigInt(i*8))&0xffn)
+  return buf
+}
 
-type DeployField = { label: string; placeholder: string; type: string; key: string }
-const DEPLOY_FIELDS: DeployField[] = [
-  { label: 'DAO NAME', placeholder: 'My Protocol DAO', type: 'text', key: 'daoName' },
-  { label: 'TOKEN NAME', placeholder: 'My Protocol Token', type: 'text', key: 'tokenName' },
-  { label: 'TOKEN SYMBOL (max 10 chars)', placeholder: 'MPT', type: 'text', key: 'tokenSymbol' },
-  { label: 'MAX SUPPLY', placeholder: '1000000', type: 'number', key: 'maxSupply' },
-  { label: 'VOTING PERIOD (seconds)', placeholder: '259200', type: 'number', key: 'votingPeriod' },
-  { label: 'QUORUM BPS (400 = 4%)', placeholder: '400', type: 'number', key: 'quorumBps' },
-  { label: 'EXECUTION DELAY (seconds)', placeholder: '86400', type: 'number', key: 'execDelay' },
-]
+const mono  = { fontFamily:"'Space Mono',monospace" } as const
+const inter = { fontFamily:"'Inter',system-ui,sans-serif" } as const
 
-type WalletState = 'disconnected' | 'connecting' | 'connected'
-type DeployState = 'idle' | 'deploying' | 'done' | 'error'
+type WalletState = 'disconnected'|'connecting'|'connected'
 
-function DeployTab({ factory, notify }: { factory: FactoryInfo | null; notify: (m: string, ok?: boolean) => void }) {
-  const [walletState, setWalletState] = useState<WalletState>('disconnected')
-  const [address, setAddress] = useState<string>('')
-  const [network, setNetwork] = useState<string>('')
-  const [deployState, setDeployState] = useState<DeployState>('idle')
-  const [deployResult, setDeployResult] = useState<{ contractAddress: string } | null>(null)
-  const [deployError, setDeployError] = useState<string>('')
-  const [form, setForm] = useState<Record<string, string>>({
-    daoName: '', tokenName: '', tokenSymbol: '', maxSupply: '1000000',
-    votingPeriod: '259200', quorumBps: '400', execDelay: '86400',
-  })
-
-  useEffect(() => {
-    const w = getOPWallet()
-    if (!w) return
-    w.getAccounts().then(accs => {
-      if (accs && accs.length > 0) {
-        setAddress(accs[0]); setWalletState('connected')
-        w.getNetwork().then(setNetwork).catch(() => {})
-      }
-    }).catch(() => {})
-    w.on('accountsChanged', (accs: unknown) => {
-      const a = accs as string[]
-      if (a.length === 0) { setWalletState('disconnected'); setAddress('') }
-      else { setAddress(a[0]); setWalletState('connected') }
-    })
-  }, [])
-
-  const connectWallet = async () => {
-    const w = getOPWallet()
-    if (!w) { notify('OPWallet extension not found — install at opnet.org', false); return }
-    setWalletState('connecting')
-    try {
-      const accs = await w.requestAccounts()
-      if (!accs || accs.length === 0) throw new Error('No accounts returned')
-      setAddress(accs[0])
-      const net = await w.getNetwork().catch(() => 'unknown')
-      setNetwork(net); setWalletState('connected'); notify('OPWallet connected')
-    } catch (e: unknown) {
-      setWalletState('disconnected')
-      notify((e as Error).message ?? 'Connection failed', false)
-    }
-  }
-
-  const deployFactory = async () => {
-    const w = getOPWallet()
-    if (!w?.web3) { notify('OPWallet not connected', false); return }
-    const { daoName, tokenName, tokenSymbol } = form
-    if (!daoName || !tokenName || !tokenSymbol) { notify('Fill in all name fields', false); return }
-    setDeployState('deploying'); setDeployError('')
-    try {
-      const res = await fetch('/DAOFactory.wasm')
-      if (!res.ok) throw new Error('DAOFactory.wasm not found in /public')
-      const bytecode = new Uint8Array(await res.arrayBuffer())
-
-      const { JSONRpcProvider } = await import('opnet')
-      const provider = new JSONRpcProvider({ url: 'https://testnet.opnet.org' })
-      const utxos = await provider.utxoManager.getUTXOs({ address, mergePendingUTXOs: false, filterSpentUTXOs: true })
-      if (!utxos || utxos.length === 0) throw new Error(`No UTXOs for ${address} — fund with testnet BTC first`)
-
-      const result = await w.web3.deployContract({ bytecode, utxos, feeRate: 10, priorityFee: 330n, gasSatFee: 1000n })
-      setDeployResult({ contractAddress: result.contractAddress })
-      setDeployState('done')
-      notify(`Deployed! ${result.contractAddress}`)
-    } catch (e: unknown) {
-      const msg = (e as Error).message ?? String(e)
-      setDeployError(msg); setDeployState('error'); notify(msg, false)
-    }
-  }
-
-  const inp = (key: string) => ({
-    value: form[key],
-    onChange: (e: React.ChangeEvent<HTMLInputElement>) => setForm(f => ({ ...f, [key]: e.target.value })),
-    style: { width:'100%', padding:'8px 11px', background:'#050505', border:'1px solid #1a1a1a', color:'#d0d0d0', fontFamily:"'Space Mono',monospace", fontSize:11, borderRadius:3, boxSizing:'border-box' as const, outline:'none' },
-  })
-
-  return (
-    <div style={{ maxWidth:520, margin:'36px auto', padding:'0 20px 80px' }}>
-      <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, color:'#f0f0f0', marginBottom:6 }}>Deploy DAOFactory</div>
-      <div style={{ fontFamily:"'Space Mono',monospace", fontSize:10, color:'#444', marginBottom:24, lineHeight:1.9 }}>
-        One-time deploy of DAOFactory.wasm via OPWallet. After deployment set the returned address as <span style={{ color:'#666' }}>FACTORY_ADDRESS</span> in Railway.
-      </div>
-
-      <div style={{ background:'#060606', border:`1px solid ${walletState==='connected'?'#00ff8833':'#1a1a1a'}`, borderRadius:4, padding:14, marginBottom:20 }}>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-          <div>
-            <div style={{ fontFamily:"'Space Mono',monospace", fontSize:9, letterSpacing:'0.12em', color:'#333', marginBottom:4 }}>OPWALLET</div>
-            {walletState === 'connected'
-              ? <div style={{ fontFamily:"'Space Mono',monospace", fontSize:10, color:'#00ff88' }}>● {address.slice(0,10)}…{address.slice(-6)}{network && <span style={{ color:'#333', marginLeft:10 }}>{network}</span>}</div>
-              : <div style={{ fontFamily:"'Space Mono',monospace", fontSize:10, color:'#333' }}>{walletState === 'connecting' ? '◌ connecting…' : '○ not connected'}</div>
-            }
-          </div>
-          {walletState !== 'connected' && (
-            <button onClick={connectWallet} disabled={walletState==='connecting'}
-              style={{ padding:'7px 14px', background:'#f7931a12', border:'1px solid #f7931a44', color:'#f7931a', fontFamily:"'Space Mono',monospace", fontSize:9, letterSpacing:'0.1em', cursor:'pointer', borderRadius:3, opacity:walletState==='connecting'?0.5:1 }}>
-              {walletState === 'connecting' ? 'CONNECTING…' : 'CONNECT'}
-            </button>
-          )}
-        </div>
-        {!getOPWallet() && (
-          <div style={{ marginTop:10, fontFamily:"'Space Mono',monospace", fontSize:9, color:'#444', borderTop:'1px solid #111', paddingTop:10 }}>
-            Not detected. <a href="https://opnet.org" target="_blank" rel="noreferrer" style={{ color:'#f7931a', textDecoration:'none' }}>Install at opnet.org ↗</a>
-          </div>
-        )}
-      </div>
-
-      {DEPLOY_FIELDS.map(({ label, placeholder, type, key }) => (
-        <div key={key} style={{ marginBottom:12 }}>
-          <div style={{ fontFamily:"'Space Mono',monospace", fontSize:9, letterSpacing:'0.12em', color:'#333', marginBottom:5 }}>{label}</div>
-          <input type={type} placeholder={placeholder} {...inp(key)} />
-        </div>
-      ))}
-
-      <div style={{ marginBottom:12 }}>
-        <div style={{ fontFamily:"'Space Mono',monospace", fontSize:9, letterSpacing:'0.12em', color:'#333', marginBottom:5 }}>MINT INITIAL SUPPLY TO CREATOR</div>
-        <select value={form.mintToCreator ?? 'true'} onChange={e => setForm(f => ({ ...f, mintToCreator: e.target.value }))}
-          style={{ width:'100%', padding:'8px 11px', background:'#050505', border:'1px solid #1a1a1a', color:'#d0d0d0', fontFamily:"'Space Mono',monospace", fontSize:11, borderRadius:3 }}>
-          <option value="true">Yes — mint to deployer</option>
-          <option value="false">No — mint to DAO treasury</option>
-        </select>
-      </div>
-
-      <button onClick={deployFactory} disabled={walletState !== 'connected' || deployState === 'deploying'}
-        style={{ width:'100%', marginTop:8, padding:13, background:walletState==='connected'?'#00ff8812':'#0a0a0a', border:`1px solid ${walletState==='connected'?'#00ff8844':'#1a1a1a'}`, color:walletState==='connected'?'#00ff88':'#2a2a2a', fontFamily:"'Space Mono',monospace", fontSize:10, letterSpacing:'0.1em', cursor:walletState==='connected'&&deployState!=='deploying'?'pointer':'not-allowed', borderRadius:3, opacity:deployState==='deploying'?0.6:1 }}>
-        {deployState === 'deploying' ? '◌ SIGNING & BROADCASTING…' : 'DEPLOY DAOFACTORY.WASM'}
-      </button>
-
-      {walletState !== 'connected' && (
-        <div style={{ marginTop:8, fontFamily:"'Space Mono',monospace", fontSize:9, color:'#2a2a2a', textAlign:'center' }}>Connect OPWallet to enable deployment</div>
-      )}
-
-      {deployState === 'done' && deployResult && (
-        <div style={{ marginTop:16, padding:14, background:'#00ff8808', border:'1px solid #00ff8833', borderRadius:4 }}>
-          <div style={{ fontFamily:"'Space Mono',monospace", fontSize:9, color:'#00ff8866', marginBottom:8 }}>DEPLOYED ✓</div>
-          <div style={{ fontFamily:"'Space Mono',monospace", fontSize:10, color:'#00ff88', wordBreak:'break-all', marginBottom:10 }}>{deployResult.contractAddress}</div>
-          <div style={{ fontFamily:"'Space Mono',monospace", fontSize:9, color:'#444', lineHeight:1.9 }}>Set as <span style={{ color:'#666' }}>FACTORY_ADDRESS</span> in Railway → Variables, then redeploy.</div>
-          <button onClick={() => { navigator.clipboard.writeText(deployResult.contractAddress); notify('Copied!') }}
-            style={{ marginTop:10, padding:'6px 12px', background:'#00ff8812', border:'1px solid #00ff8833', color:'#00ff88', fontFamily:"'Space Mono',monospace", fontSize:9, cursor:'pointer', borderRadius:3 }}>
-            COPY ADDRESS
-          </button>
-        </div>
-      )}
-
-      {deployState === 'error' && (
-        <div style={{ marginTop:16, padding:14, background:'#ff445508', border:'1px solid #ff445533', borderRadius:4 }}>
-          <div style={{ fontFamily:"'Space Mono',monospace", fontSize:9, color:'#ff4455aa', marginBottom:6 }}>ERROR</div>
-          <div style={{ fontFamily:"'Space Mono',monospace", fontSize:10, color:'#ff4455', wordBreak:'break-all' }}>{deployError}</div>
-        </div>
-      )}
-
-      <div style={{ marginTop:20, padding:12, background:'#060606', border:'1px solid #0d0d0d', borderRadius:3, fontFamily:"'Space Mono',monospace", fontSize:10, color:'#333', lineHeight:1.9 }}>
-        <div style={{ color:'#1a1a1a', marginBottom:6, fontSize:9, letterSpacing:'0.12em' }}>CURRENT FACTORY</div>
-        Factory: <span style={{ color:'#444' }}>{factory?.factoryAddress || '—'}</span><br/>
-        Network: <span style={{ color:'#444' }}>{factory?.network || 'testnet'}</span><br/>
-        DAOs deployed: <span style={{ color:'#444' }}>{factory?.totalDAOs ?? '—'}</span>
-      </div>
+function WalletBadge({ state, address, onConnect }: { state:WalletState; address:string; onConnect:()=>void }) {
+  if (state==='connected') return (
+    <div style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 14px', background:C.accentBg, border:`1px solid ${C.accentRing}`, borderRadius:20 }}>
+      <span style={{ width:6, height:6, borderRadius:'50%', background:C.accent, display:'inline-block' }}/>
+      <span style={{ ...mono, fontSize:10, color:C.accent }}>{trim(address,22)}</span>
     </div>
+  )
+  return (
+    <button onClick={onConnect} disabled={state==='connecting'}
+      style={{ padding:'6px 18px', background:C.accentBg, border:`1px solid ${C.accentRing}`, color:C.accent, ...mono, fontSize:10, letterSpacing:'0.07em', cursor:'pointer', borderRadius:20, opacity:state==='connecting'?0.5:1 }}>
+      {state==='connecting' ? '◌ CONNECTING' : 'CONNECT WALLET'}
+    </button>
   )
 }
 
 function VoteBar({ yes, no, abs }: { yes:string; no:string; abs:string }) {
-  const t = Number(yes)+Number(no)+Number(abs) || 1
+  const t=Number(yes)+Number(no)+Number(abs)||1
   return (
     <div>
-      <div style={{ display:'flex', height:4, borderRadius:2, overflow:'hidden', background:'#111', margin:'8px 0' }}>
-        <div style={{ width:`${(Number(yes)/t)*100}%`, background:'#00ff88' }}/>
-        <div style={{ width:`${(Number(no)/t)*100}%`, background:'#ff4455' }}/>
-        <div style={{ width:`${(Number(abs)/t)*100}%`, background:'#444' }}/>
+      <div style={{ display:'flex', height:3, borderRadius:3, overflow:'hidden', background:C.border, margin:'8px 0' }}>
+        <div style={{ width:`${(Number(yes)/t)*100}%`, background:C.green }}/>
+        <div style={{ width:`${(Number(no)/t)*100}%`, background:C.red }}/>
+        <div style={{ width:`${(Number(abs)/t)*100}%`, background:C.borderMid }}/>
       </div>
-      <div style={{ display:'flex', gap:12, ...mono, fontSize:10, color:'#555' }}>
-        <span style={{ color:'#00ff88' }}>YES {pct(yes,t)}</span>
-        <span style={{ color:'#ff4455' }}>NO {pct(no,t)}</span>
-        <span>ABS {pct(abs,t)}</span>
+      <div style={{ display:'flex', gap:14, ...mono, fontSize:9, color:C.textDim }}>
+        <span style={{ color:C.green }}>FOR {pct(yes,t)}</span>
+        <span style={{ color:C.red }}>AGAINST {pct(no,t)}</span>
+        <span>ABSTAIN {pct(abs,t)}</span>
       </div>
     </div>
   )
 }
 
-function Tag({ state }: { state:number }) {
-  const c = STATE_COLOR[state] ?? '#888'
-  return <span style={{ ...mono, fontSize:9, letterSpacing:'0.12em', padding:'2px 7px', border:`1px solid ${c}`, color:c, borderRadius:2 }}>{STATE_LABEL[state]}</span>
+function Pill({ state }: { state:number }) {
+  const c=STATE_COLOR[state]??C.textSub
+  return <span style={{ ...mono, fontSize:9, letterSpacing:'0.09em', padding:'2px 9px', background:c+'18', border:`1px solid ${c}33`, color:c, borderRadius:4 }}>{STATE_LABEL[state]??'?'}</span>
 }
 
 function ProposalRow({ p, active, onClick }: { p:Proposal; active:boolean; onClick:()=>void }) {
   return (
-    <div onClick={onClick} style={{ ...card, padding:'14px 16px', marginBottom:6, cursor:'pointer', border:`1px solid ${active?'#00ff88':'#111'}`, position:'relative' }}>
-      {active && <div style={{ position:'absolute', left:0, top:0, bottom:0, width:3, background:'#00ff88', borderRadius:'4px 0 0 4px' }}/>}
-      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-        <span style={{ ...mono, fontSize:10, color:'#444' }}>#{p.proposalId}</span>
-        <Tag state={p.state}/>
+    <div onClick={onClick} style={{ padding:'13px 14px', marginBottom:3, cursor:'pointer', background:active?C.bgElevated:C.bgCard, border:`1px solid ${active?C.accent+'55':C.border}`, borderRadius:7, position:'relative', transition:'all .1s' }}>
+      {active&&<div style={{ position:'absolute', left:0, top:5, bottom:5, width:2, background:C.accent, borderRadius:2 }}/>}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+        <span style={{ ...mono, fontSize:9, color:C.textSub }}>#{p.proposalId}</span>
+        <Pill state={p.state}/>
       </div>
-      <div style={{ ...serif, fontSize:13, color:'#ccc', marginBottom:4, lineHeight:1.35 }}>
-        {Number(p.btcValue)>0 ? `⊕ ${fmtBTC(p.btcValue)} → ${short(p.target)}` : `→ ${short(p.target)}`}
+      <div style={{ ...inter, fontSize:12, fontWeight:500, color:C.text, marginBottom:7, lineHeight:1.4 }}>
+        {Number(p.btcValue)>0?`⊕ ${fmtBTC(p.btcValue)} → ${trim(p.target,22)}`:`→ ${trim(p.target,28)}`}
       </div>
       <VoteBar yes={p.yesVotes} no={p.noVotes} abs={p.abstainVotes}/>
-      {p.state===1 && <div style={{ ...mono, fontSize:9, color:'#555', marginTop:4 }}>closes in {timeLeft(p.voteEnd)}</div>}
+      {p.state===1&&<div style={{ ...mono, fontSize:9, color:C.textSub, marginTop:5 }}>closes {timeLeft(p.voteEnd)}</div>}
     </div>
   )
 }
 
-function Detail({ p, onVote }: { p:Proposal|null; onVote:(id:string,s:number)=>void }) {
-  const [hov, setHov] = useState<number|null>(null)
-  if (!p) return (
-    <div style={{ height:'100%', display:'flex', alignItems:'center', justifyContent:'center', color:'#222', ...mono, fontSize:12 }}>
-      <div style={{ textAlign:'center' }}><div style={{ fontSize:36, marginBottom:12 }}>◈</div>SELECT A PROPOSAL</div>
+function VotePanel({ p, walletState, address, onVote, onConnect }: {
+  p:Proposal; walletState:WalletState; address:string
+  onVote:(p:Proposal,support:number)=>Promise<void>; onConnect:()=>void
+}) {
+  const [voting, setVoting] = useState<number|null>(null)
+  const go = async (s: number) => { setVoting(s); try { await onVote(p,s) } finally { setVoting(null) } }
+
+  if (walletState!=='connected') return (
+    <div style={{ textAlign:'center', padding:'18px 0' }}>
+      <div style={{ ...inter, fontSize:13, color:C.textSub, marginBottom:14 }}>Connect your wallet to vote</div>
+      <button onClick={onConnect} style={{ padding:'9px 22px', background:C.accentBg, border:`1px solid ${C.accentRing}`, color:C.accent, ...mono, fontSize:10, letterSpacing:'0.07em', cursor:'pointer', borderRadius:7 }}>CONNECT WALLET</button>
     </div>
   )
-  const total = Number(p.yesVotes)+Number(p.noVotes)+Number(p.abstainVotes)
-  const canExec = p.state===2 && Date.now()/1e3 >= p.execAfter
-  const timelocked = p.state===2 && !canExec
+
   return (
-    <div style={{ padding:32, overflowY:'auto', height:'100%' }}>
-      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:20 }}>
-        <span style={{ ...mono, fontSize:10, color:'#444' }}>PROPOSAL #{p.proposalId}</span>
-        <Tag state={p.state}/>
+    <>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:10 }}>
+        {([['FOR',1,C.green,C.greenBg,C.greenRing],['AGAINST',2,C.red,C.redBg,C.redRing],['ABSTAIN',3,C.textSub,C.border+'44',C.borderMid]] as const).map(([l,v,c,bg,ring])=>(
+          <button key={l} onClick={()=>go(v)} disabled={voting!==null}
+            style={{ padding:'12px 0', background:voting===v?bg:C.bgCard, border:`1px solid ${voting===v?ring:C.border}`, color:voting===v?c:C.textSub, ...mono, fontSize:10, letterSpacing:'0.08em', cursor:voting!==null?'not-allowed':'pointer', borderRadius:7, opacity:voting!==null&&voting!==v?0.4:1 }}>
+            {voting===v?'◌':l}
+          </button>
+        ))}
       </div>
-      <div style={{ ...card, marginBottom:20 }}>
-        <div style={{ ...mono, fontSize:9, letterSpacing:'0.15em', color:'#333', marginBottom:14 }}>VOTE TALLY</div>
+      <div style={{ ...mono, fontSize:9, color:C.textDim }}>signing as <span style={{ color:C.textSub }}>{trim(address,26)}</span></div>
+    </>
+  )
+}
+
+function Detail({ p, walletState, address, onVote, onConnect }: {
+  p:Proposal|null; walletState:WalletState; address:string
+  onVote:(p:Proposal,support:number)=>Promise<void>; onConnect:()=>void
+}) {
+  const [execLoading, setExecLoading] = useState(false)
+  if (!p) return (
+    <div style={{ height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}>
+      <div style={{ textAlign:'center', color:C.textDim, ...mono, fontSize:11 }}>
+        <div style={{ fontSize:28, marginBottom:10 }}>◈</div>SELECT A PROPOSAL
+      </div>
+    </div>
+  )
+  const total=Number(p.yesVotes)+Number(p.noVotes)+Number(p.abstainVotes)
+  const canExec=p.state===2&&Date.now()/1e3>=p.execAfter
+  const locked=p.state===2&&!canExec
+  const doExec=async()=>{ setExecLoading(true); try{await onVote(p,0)}finally{setExecLoading(false)} }
+
+  return (
+    <div style={{ padding:28, overflowY:'auto', height:'100%' }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:22 }}>
+        <div>
+          <div style={{ ...mono, fontSize:9, color:C.textSub, marginBottom:4 }}>PROPOSAL #{p.proposalId}</div>
+          <div style={{ ...inter, fontSize:14, fontWeight:600, color:C.text, lineHeight:1.4 }}>
+            {Number(p.btcValue)>0?`Transfer ${fmtBTC(p.btcValue)}`:`Call ${trim(p.target,24)}`}
+          </div>
+        </div>
+        <Pill state={p.state}/>
+      </div>
+
+      <div style={{ background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:8, padding:16, marginBottom:14 }}>
+        <div style={{ ...mono, fontSize:9, color:C.textDim, letterSpacing:'0.12em', marginBottom:14 }}>VOTE TALLY</div>
         <VoteBar yes={p.yesVotes} no={p.noVotes} abs={p.abstainVotes}/>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginTop:16 }}>
-          {([['YES',p.yesVotes,'#00ff88'],['NO',p.noVotes,'#ff4455'],['ABSTAIN',p.abstainVotes,'#666']] as const).map(([l,v,c])=>(
-            <div key={l} style={{ textAlign:'center' }}>
-              <div style={{ ...serif, fontSize:20, color:c, fontWeight:700 }}>{fmt(v)}</div>
-              <div style={{ ...mono, fontSize:9, color:'#444', marginTop:2 }}>{l}</div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginTop:14 }}>
+          {([['FOR',p.yesVotes,C.green],['AGAINST',p.noVotes,C.red],['ABSTAIN',p.abstainVotes,C.textSub]] as const).map(([l,v,c])=>(
+            <div key={l} style={{ textAlign:'center', padding:'10px 0', background:C.bg, borderRadius:6 }}>
+              <div style={{ ...inter, fontSize:17, fontWeight:700, color:c }}>{fmt(v)}</div>
+              <div style={{ ...mono, fontSize:8, color:C.textDim, marginTop:2, letterSpacing:'0.1em' }}>{l}</div>
             </div>
           ))}
         </div>
-        <div style={{ borderTop:'1px solid #111', marginTop:14, paddingTop:10, display:'flex', justifyContent:'space-between', ...mono, fontSize:10, color:'#555' }}>
+        <div style={{ borderTop:`1px solid ${C.border}`, marginTop:12, paddingTop:10, display:'flex', justifyContent:'space-between', ...mono, fontSize:9, color:C.textSub }}>
           <span>{fmt(total)} votes cast</span>
-          {p.state===1 && <span>closes {timeLeft(p.voteEnd)}</span>}
-          {p.state===0 && <span>opens {timeLeft(p.voteStart)}</span>}
+          {p.state===1&&<span style={{ color:C.accent }}>closes {timeLeft(p.voteEnd)}</span>}
+          {p.state===0&&<span>opens {timeLeft(p.voteStart)}</span>}
         </div>
       </div>
-      <div style={{ ...card, marginBottom:20 }}>
-        <div style={{ ...mono, fontSize:9, letterSpacing:'0.15em', color:'#333', marginBottom:6 }}>TARGET</div>
-        <div style={{ ...mono, fontSize:11, color:'#888', wordBreak:'break-all' }}>{p.target}</div>
-        {Number(p.btcValue)>0 && <div style={{ ...mono, fontSize:11, color:'#f7931a', marginTop:8 }}>⊕ {fmtBTC(p.btcValue)}</div>}
+
+      <div style={{ background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:8, padding:16, marginBottom:14 }}>
+        <div style={{ ...mono, fontSize:9, color:C.textDim, letterSpacing:'0.12em', marginBottom:8 }}>TARGET CONTRACT</div>
+        <div style={{ ...mono, fontSize:11, color:C.textSub, wordBreak:'break-all', lineHeight:1.7 }}>{p.target}</div>
+        {Number(p.btcValue)>0&&<div style={{ marginTop:10, padding:'8px 12px', background:C.bg, borderRadius:6, ...mono, fontSize:12, color:'#f59e0b' }}>⊕ {fmtBTC(p.btcValue)}</div>}
       </div>
-      {p.state===1 && (
-        <div style={{ marginBottom:16 }}>
-          <div style={{ ...mono, fontSize:9, letterSpacing:'0.15em', color:'#333', marginBottom:10 }}>CAST VOTE</div>
-          <div style={{ display:'flex', gap:8 }}>
-            {([['YES',1,'#00ff88'],['NO',2,'#ff4455'],['ABSTAIN',3,'#666']] as const).map(([l,v,c])=>(
-              <button key={l} onMouseEnter={()=>setHov(v)} onMouseLeave={()=>setHov(null)} onClick={()=>onVote(p.proposalId,v)}
-                style={{ flex:1, padding:'10px 0', background:hov===v?c+'22':'transparent', border:`1px solid ${hov===v?c:'#222'}`, color:hov===v?c:'#555', ...mono, fontSize:10, letterSpacing:'0.1em', cursor:'pointer', borderRadius:3 }}>
-                {l}
-              </button>
-            ))}
-          </div>
-          <div style={{ ...mono, fontSize:9, color:'#444', marginTop:6 }}>Connect OPWallet to sign the vote transaction</div>
+
+      {p.state===1&&(
+        <div style={{ background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:8, padding:16, marginBottom:14 }}>
+          <div style={{ ...mono, fontSize:9, color:C.textDim, letterSpacing:'0.12em', marginBottom:12 }}>CAST VOTE</div>
+          <VotePanel p={p} walletState={walletState} address={address} onVote={onVote} onConnect={onConnect}/>
         </div>
       )}
-      {canExec && (
-        <button onClick={()=>onVote(p.proposalId,0)} style={{ width:'100%', padding:11, background:'#00ff8811', border:'1px solid #00ff88', color:'#00ff88', ...mono, fontSize:10, letterSpacing:'0.1em', cursor:'pointer', borderRadius:3 }}>
-          EXECUTE PROPOSAL
-        </button>
-      )}
-      {timelocked && (
-        <div style={{ textAlign:'center', padding:11, border:'1px solid #1a1a1a', borderRadius:3, ...mono, fontSize:10, color:'#444' }}>
-          TIMELOCK — executable in {timeLeft(p.execAfter)}
-        </div>
-      )}
+      {canExec&&<button onClick={doExec} disabled={execLoading} style={{ width:'100%', padding:13, background:C.greenBg, border:`1px solid ${C.greenRing}`, color:C.green, ...mono, fontSize:10, letterSpacing:'0.09em', cursor:'pointer', borderRadius:8, opacity:execLoading?0.6:1 }}>{execLoading?'◌ SIGNING…':'⚡ EXECUTE PROPOSAL'}</button>}
+      {locked&&<div style={{ textAlign:'center', padding:13, border:`1px solid ${C.border}`, borderRadius:8, ...mono, fontSize:10, color:C.textSub }}>⏳ TIMELOCK — executable in {timeLeft(p.execAfter)}</div>}
     </div>
   )
 }
 
-type Tab = 'proposals'|'treasury'|'relayer'|'deploy'
-type Filter = 'all'|'active'|'pending'|'closed'
+type DeployState='idle'|'deploying'|'done'|'error'
+const FIELDS=[
+  {label:'DAO NAME',ph:'My Protocol DAO',type:'text',key:'daoName'},
+  {label:'TOKEN NAME',ph:'My Protocol Token',type:'text',key:'tokenName'},
+  {label:'TOKEN SYMBOL',ph:'MPT',type:'text',key:'tokenSymbol'},
+  {label:'MAX SUPPLY',ph:'1000000',type:'number',key:'maxSupply'},
+  {label:'VOTING PERIOD (secs)',ph:'259200',type:'number',key:'votingPeriod'},
+  {label:'QUORUM BPS (400=4%)',ph:'400',type:'number',key:'quorumBps'},
+  {label:'EXEC DELAY (secs)',ph:'86400',type:'number',key:'execDelay'},
+]
+
+function DeployTab({ factory, walletState, address, onConnect, notify }: {
+  factory:FactoryInfo|null; walletState:WalletState; address:string; onConnect:()=>void; notify:(m:string,ok?:boolean)=>void
+}) {
+  const [ds, setDs]=useState<DeployState>('idle')
+  const [result, setResult]=useState('')
+  const [error, setError]=useState('')
+  const [form, setForm]=useState<Record<string,string>>({ daoName:'', tokenName:'', tokenSymbol:'', maxSupply:'1000000', votingPeriod:'259200', quorumBps:'400', execDelay:'86400' })
+
+  const deploy=async()=>{
+    if(!window.opnet?.web3){notify('OPWallet not connected',false);return}
+    if(!form.daoName||!form.tokenName||!form.tokenSymbol){notify('Fill all name fields',false);return}
+    setDs('deploying');setError('')
+    try{
+      const res=await fetch('/DAOFactory.wasm')
+      if(!res.ok) throw new Error('DAOFactory.wasm not found — place it in client/public/')
+      const bytecode=new Uint8Array(await res.arrayBuffer())
+      const {JSONRpcProvider}=await import('opnet')
+      const bitcoin=await import('@btc-vision/bitcoin')
+      const testnet=bitcoin.networks.testnet
+      const provider=new JSONRpcProvider('https://testnet.opnet.org',testnet)
+      const utxos=await provider.utxoManager.getUTXOs({address,mergePendingUTXOs:false,filterSpentUTXOs:true})
+      if(!utxos?.length) throw new Error(`No UTXOs for ${address} — fund with testnet BTC first`)
+      const r=await window.opnet.web3.deployContract({bytecode,utxos,feeRate:10,priorityFee:330n,gasSatFee:1000n})
+      setResult(r.contractAddress);setDs('done');notify(`Deployed: ${r.contractAddress}`)
+    }catch(e:unknown){
+      const msg=(e as Error).message??String(e)
+      setError(msg);setDs('error');notify(msg,false)
+    }
+  }
+
+  const inp={width:'100%',padding:'9px 12px',background:C.bg,border:`1px solid ${C.border}`,color:C.text,...mono,fontSize:11,borderRadius:6,boxSizing:'border-box' as const,outline:'none'}
+
+  return(
+    <div style={{maxWidth:520,margin:'32px auto',padding:'0 20px 80px'}}>
+      <h2 style={{...inter,fontSize:22,fontWeight:700,color:C.text,marginBottom:4}}>Deploy Factory</h2>
+      <p style={{...mono,fontSize:10,color:C.textSub,marginBottom:24,lineHeight:1.8}}>
+        One-time deployment of DAOFactory.wasm via OPWallet.<br/>
+        After deploying, set the address as <code style={{color:C.text}}>FACTORY_ADDRESS</code> in Railway.
+      </p>
+      <div style={{background:C.bgCard,border:`1px solid ${walletState==='connected'?C.accentRing:C.border}`,borderRadius:8,padding:16,marginBottom:20}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <div>
+            <div style={{...mono,fontSize:9,color:C.textDim,letterSpacing:'0.1em',marginBottom:4}}>WALLET</div>
+            <div style={{...mono,fontSize:11,color:walletState==='connected'?C.green:C.textSub}}>
+              {walletState==='connected'?`● ${trim(address,26)}`:'○ Not connected'}
+            </div>
+          </div>
+          {walletState!=='connected'&&<button onClick={onConnect} style={{padding:'7px 16px',background:C.accentBg,border:`1px solid ${C.accentRing}`,color:C.accent,...mono,fontSize:9,cursor:'pointer',borderRadius:6}}>CONNECT</button>}
+        </div>
+        {!window.opnet&&<div style={{marginTop:10,padding:'8px 12px',background:C.bg,borderRadius:6,...mono,fontSize:9,color:C.textSub}}>OPWallet not detected — <a href="https://opnet.org" target="_blank" rel="noreferrer" style={{color:C.accent,textDecoration:'none'}}>install at opnet.org ↗</a></div>}
+      </div>
+      {FIELDS.map(({label,ph,type,key})=>(
+        <div key={key} style={{marginBottom:12}}>
+          <div style={{...mono,fontSize:9,color:C.textDim,letterSpacing:'0.1em',marginBottom:5}}>{label}</div>
+          <input type={type} placeholder={ph} value={form[key]} onChange={e=>setForm(f=>({...f,[key]:e.target.value}))} style={inp}/>
+        </div>
+      ))}
+      <div style={{marginBottom:18}}>
+        <div style={{...mono,fontSize:9,color:C.textDim,letterSpacing:'0.1em',marginBottom:5}}>MINT TO CREATOR</div>
+        <select value={form.mintToCreator??'true'} onChange={e=>setForm(f=>({...f,mintToCreator:e.target.value}))} style={{...inp,cursor:'pointer'}}>
+          <option value="true">Yes — mint to deployer</option>
+          <option value="false">No — mint to treasury</option>
+        </select>
+      </div>
+      <button onClick={deploy} disabled={walletState!=='connected'||ds==='deploying'}
+        style={{width:'100%',padding:13,background:walletState==='connected'?C.accentBg:C.bgCard,border:`1px solid ${walletState==='connected'?C.accentRing:C.border}`,color:walletState==='connected'?C.accent:C.textDim,...mono,fontSize:10,letterSpacing:'0.09em',cursor:walletState==='connected'?'pointer':'not-allowed',borderRadius:8,opacity:ds==='deploying'?0.6:1}}>
+        {ds==='deploying'?'◌ SIGNING & BROADCASTING…':'DEPLOY DAOFACTORY.WASM'}
+      </button>
+      {ds==='done'&&(
+        <div style={{marginTop:16,padding:16,background:C.greenBg,border:`1px solid ${C.greenRing}`,borderRadius:8}}>
+          <div style={{...mono,fontSize:9,color:C.green+'88',marginBottom:6,letterSpacing:'0.1em'}}>DEPLOYED ✓</div>
+          <div style={{...mono,fontSize:11,color:C.green,wordBreak:'break-all',marginBottom:10}}>{result}</div>
+          <div style={{...inter,fontSize:12,color:C.textSub,marginBottom:10}}>Set as <code style={{color:C.text}}>FACTORY_ADDRESS</code> in Railway → Variables.</div>
+          <button onClick={()=>{navigator.clipboard.writeText(result);notify('Copied!')}} style={{padding:'6px 14px',background:C.greenBg,border:`1px solid ${C.greenRing}`,color:C.green,...mono,fontSize:9,cursor:'pointer',borderRadius:6}}>COPY ADDRESS</button>
+        </div>
+      )}
+      {ds==='error'&&(
+        <div style={{marginTop:16,padding:16,background:C.redBg,border:`1px solid ${C.redRing}`,borderRadius:8}}>
+          <div style={{...mono,fontSize:9,color:C.red+'88',marginBottom:6}}>ERROR</div>
+          <div style={{...mono,fontSize:11,color:C.red,wordBreak:'break-all'}}>{error}</div>
+        </div>
+      )}
+      <div style={{marginTop:22,padding:14,background:C.bgCard,border:`1px solid ${C.border}`,borderRadius:8,...mono,fontSize:10,color:C.textSub,lineHeight:2}}>
+        <div style={{color:C.textDim,fontSize:9,letterSpacing:'0.1em',marginBottom:6}}>CURRENT FACTORY</div>
+        Factory: <span style={{color:C.text}}>{factory?.factoryAddress||'—'}</span><br/>
+        Network: <span style={{color:C.text}}>{factory?.network||'testnet'}</span><br/>
+        DAOs: <span style={{color:C.text}}>{factory?.totalDAOs??'—'}</span>
+      </div>
+    </div>
+  )
+}
+
+type Tab='proposals'|'treasury'|'relayer'|'deploy'
+type Filter='all'|'active'|'pending'|'closed'
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('proposals')
-  const [filter, setFilter] = useState<Filter>('all')
-  const [proposals] = useState<Proposal[]>(DEMO)
+  const [tab, setTab]           = useState<Tab>('proposals')
+  const [filter, setFilter]     = useState<Filter>('all')
+  const [proposals]             = useState<Proposal[]>(DEMO)
   const [selected, setSelected] = useState<Proposal|null>(DEMO[0])
-  const [factory, setFactory] = useState<FactoryInfo|null>(null)
-  const [relayer, setRelayer] = useState<RelayerStatus|null>(null)
-  const [toast, setToast] = useState<{msg:string;ok:boolean}|null>(null)
-  const [health, setHealth] = useState<string>('…')
+  const [factory, setFactory]   = useState<FactoryInfo|null>(null)
+  const [relayer, setRelayer]   = useState<RelayerStatus|null>(null)
+  const [toast, setToast]       = useState<{msg:string;ok:boolean}|null>(null)
+  const [health, setHealth]     = useState('…')
+  const [walletState, setWalletState] = useState<WalletState>('disconnected')
+  const [address, setAddress]   = useState('')
 
-  const notify = useCallback((msg:string, ok=true) => {
-    setToast({msg,ok}); setTimeout(()=>setToast(null),3200)
-  }, [])
+  const notify=useCallback((msg:string,ok=true)=>{setToast({msg,ok});setTimeout(()=>setToast(null),3500)},[])
 
-  useEffect(() => {
-    api.health().then((h: { ok: boolean }) => { setHealth(h.ok ? 'online' : 'degraded') }).catch(()=>setHealth('offline'))
+  useEffect(()=>{
+    const w=window.opnet; if(!w) return
+    w.getAccounts().then(accs=>{
+      if(accs?.length){setAddress(accs[0]);setWalletState('connected')}
+    }).catch(()=>{})
+    w.on('accountsChanged',(accs:string[])=>{
+      if(!accs.length){setWalletState('disconnected');setAddress('')}
+      else{setAddress(accs[0]);setWalletState('connected')}
+    })
+  },[])
+
+  const connectWallet=useCallback(async()=>{
+    const w=window.opnet
+    if(!w){notify('OPWallet not found — install at opnet.org',false);return}
+    setWalletState('connecting')
+    try{
+      const accs=await w.requestAccounts()
+      if(!accs?.length) throw new Error('No accounts returned')
+      setAddress(accs[0]);setWalletState('connected');notify('Wallet connected ✓')
+    }catch(e:unknown){setWalletState('disconnected');notify((e as Error).message??'Connection failed',false)}
+  },[notify])
+
+  const handleVote=useCallback(async(p:Proposal,support:number)=>{
+    const w=window.opnet
+    if(!isOPWallet(w)){notify('Connect wallet first',false);return}
+    notify('Preparing transaction…')
+    try{
+      const {JSONRpcProvider}=await import('opnet')
+      const bitcoin=await import('@btc-vision/bitcoin')
+      const testnet=bitcoin.networks.testnet
+      const provider=new JSONRpcProvider('https://testnet.opnet.org',testnet)
+      const utxos=await provider.utxoManager.getUTXOs({address,mergePendingUTXOs:false,filterSpentUTXOs:true})
+      if(!utxos?.length) throw new Error(`No UTXOs for ${address}`)
+      const calldata=support===0?encodeExec(p.proposalId):encodeVote(p.proposalId,support)
+      await w.web3.signAndBroadcastInteraction({to:p.target,calldata,utxos,feeRate:10,priorityFee:330n,gasSatFee:1000n,network:testnet})
+      notify(`${support===0?'Execute':['','FOR','AGAINST','ABSTAIN'][support]} transaction broadcast ✓`)
+    }catch(e:unknown){notify((e as Error).message??'Transaction failed',false)}
+  },[address,notify])
+
+  useEffect(()=>{
+    api.health().then((h:{ok:boolean})=>setHealth(h.ok?'online':'degraded')).catch(()=>setHealth('offline'))
     api.factory().then(setFactory).catch(()=>{})
     api.relayer().then(setRelayer).catch(()=>{})
-  }, [])
+  },[])
 
-  const filtered = proposals.filter(p => {
-    if (filter==='active') return p.state===1
-    if (filter==='pending') return p.state===0
-    if (filter==='closed') return p.state>1
-    return true
-  })
-  const activeCount = proposals.filter(p=>p.state===1).length
+  const filtered=proposals.filter(p=>filter==='active'?p.state===1:filter==='pending'?p.state===0:filter==='closed'?p.state>1:true)
+  const activeCount=proposals.filter(p=>p.state===1).length
 
-  return (
-    <div style={{ minHeight:'100vh', background:'#020202', color:'#e0e0e0' }}>
+  return(
+    <div style={{minHeight:'100vh',background:C.bg,color:C.text}}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Space+Mono&family=Playfair+Display:wght@700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono&display=swap');
         *{box-sizing:border-box;margin:0;padding:0}
-        ::-webkit-scrollbar{width:3px}
-        ::-webkit-scrollbar-thumb{background:#1a1a1a}
-        button{transition:all .15s}
-        input:focus,textarea:focus{outline:none;border-color:#333!important}
+        ::-webkit-scrollbar{width:4px} ::-webkit-scrollbar-track{background:${C.bg}} ::-webkit-scrollbar-thumb{background:${C.border};border-radius:4px}
+        button,a{transition:opacity .12s,border-color .12s,background .12s}
+        input:focus,select:focus{outline:none;border-color:${C.borderMid}!important}
       `}</style>
 
-      <header style={{ borderBottom:'1px solid #0d0d0d', height:50, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 20px' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-          <span style={{ color:'#00ff88', fontSize:18 }}>◈</span>
+      <header style={{height:54,borderBottom:`1px solid ${C.border}`,background:C.bgCard,display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0 22px',position:'sticky',top:0,zIndex:100}}>
+        <div style={{display:'flex',alignItems:'center',gap:14}}>
+          <div style={{width:30,height:30,borderRadius:8,background:C.accentBg,border:`1px solid ${C.accentRing}`,display:'grid',placeItems:'center',color:C.accent,fontSize:15}}>◈</div>
           <div>
-            <div style={{ ...serif, fontSize:14, color:'#f0f0f0' }}>OPNet DAO Factory</div>
-            <div style={{ ...mono, fontSize:9, color:'#2a2a2a', letterSpacing:'0.12em' }}>
-              {factory ? `${factory.network.toUpperCase()} · ${factory.totalDAOs} DAO${factory.totalDAOs!==1?'s':''}` : 'BITCOIN L1 · OPNET'}
-            </div>
+            <div style={{...inter,fontSize:13,fontWeight:600,color:C.text}}>OPNet DAO Factory</div>
+            <div style={{...mono,fontSize:8,color:C.textDim,letterSpacing:'0.13em',marginTop:1}}>{factory?`${factory.network.toUpperCase()} · ${factory.totalDAOs} DAO${factory.totalDAOs!==1?'s':''}`:'BITCOIN L1 · OPNET'}</div>
           </div>
-          {activeCount>0 && <span style={{ ...mono, fontSize:9, background:'#00ff8818', border:'1px solid #00ff8830', color:'#00ff88', padding:'2px 8px', borderRadius:10 }}>{activeCount} ACTIVE</span>}
+          {activeCount>0&&<span style={{...mono,fontSize:9,background:C.accentBg,border:`1px solid ${C.accentRing}`,color:C.accent,padding:'2px 9px',borderRadius:12}}>{activeCount} ACTIVE</span>}
         </div>
-        <nav style={{ display:'flex' }}>
-          {(['proposals','treasury','relayer','deploy'] as Tab[]).map(t=>(
-            <button key={t} onClick={()=>setTab(t)} style={{ background:'none', border:'none', ...mono, fontSize:9, letterSpacing:'0.1em', color:tab===t?'#ddd':'#3a3a3a', padding:'6px 12px', cursor:'pointer', textTransform:'uppercase', borderBottom:tab===t?'1px solid #ddd':'1px solid transparent' }}>{t}</button>
-          ))}
-        </nav>
+        <div style={{display:'flex',alignItems:'center',gap:18}}>
+          <nav style={{display:'flex'}}>
+            {(['proposals','treasury','relayer','deploy'] as Tab[]).map(t=>(
+              <button key={t} onClick={()=>setTab(t)} style={{background:'none',border:'none',borderBottom:tab===t?`2px solid ${C.accent}`:'2px solid transparent',...mono,fontSize:9,letterSpacing:'0.07em',color:tab===t?C.text:C.textSub,padding:'4px 11px',cursor:'pointer',textTransform:'uppercase',marginTop:2}}>{t}</button>
+            ))}
+          </nav>
+          <WalletBadge state={walletState} address={address} onConnect={connectWallet}/>
+        </div>
       </header>
 
-      {tab==='proposals' && (
-        <div style={{ display:'grid', gridTemplateColumns:'340px 1fr', height:'calc(100vh - 50px - 32px)' }}>
-          <div style={{ borderRight:'1px solid #0d0d0d', display:'flex', flexDirection:'column' }}>
-            <div style={{ padding:'10px 12px', borderBottom:'1px solid #0d0d0d', display:'flex', gap:6, alignItems:'center' }}>
-              <div style={{ display:'flex', gap:4, flex:1 }}>
+      {tab==='proposals'&&(
+        <div style={{display:'grid',gridTemplateColumns:'310px 1fr',height:'calc(100vh - 54px - 30px)'}}>
+          <aside style={{borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',background:C.bgCard}}>
+            <div style={{padding:'9px 10px',borderBottom:`1px solid ${C.border}`,display:'flex',gap:5,alignItems:'center'}}>
+              <div style={{display:'flex',gap:3,flex:1}}>
                 {(['all','active','pending','closed'] as Filter[]).map(f=>(
-                  <button key={f} onClick={()=>setFilter(f)} style={{ ...mono, fontSize:9, padding:'3px 8px', background:'none', border:`1px solid ${filter===f?'#2a2a2a':'#111'}`, color:filter===f?'#ccc':'#3a3a3a', cursor:'pointer', borderRadius:2, textTransform:'uppercase', letterSpacing:'0.08em' }}>{f}</button>
+                  <button key={f} onClick={()=>setFilter(f)} style={{...mono,fontSize:8,padding:'3px 8px',background:filter===f?C.bgElevated:'none',border:`1px solid ${filter===f?C.borderMid:C.border}`,color:filter===f?C.text:C.textSub,cursor:'pointer',borderRadius:4,textTransform:'uppercase'}}>{f}</button>
                 ))}
               </div>
-              <button onClick={()=>setTab('deploy')} style={{ ...mono, fontSize:9, padding:'3px 9px', background:'#00ff8812', border:'1px solid #00ff8830', color:'#00ff88', cursor:'pointer', borderRadius:2 }}>+ NEW</button>
+              <button onClick={()=>setTab('deploy')} style={{...mono,fontSize:8,padding:'3px 9px',background:C.accentBg,border:`1px solid ${C.accentRing}`,color:C.accent,cursor:'pointer',borderRadius:4}}>+ NEW</button>
             </div>
-            <div style={{ overflowY:'auto', flex:1, padding:10 }}>
+            <div style={{overflowY:'auto',flex:1,padding:8}}>
               {filtered.map(p=><ProposalRow key={p.proposalId} p={p} active={selected?.proposalId===p.proposalId} onClick={()=>setSelected(p)}/>)}
             </div>
-          </div>
-          <div style={{ overflowY:'auto' }}>
-            <Detail p={selected} onVote={(id,s)=>notify(`Proposal #${id}: open OPWallet to sign ${['','YES','NO','ABSTAIN','execute'][s]} transaction`)}/>
-          </div>
+          </aside>
+          <main style={{overflowY:'auto',background:C.bg}}>
+            <Detail p={selected} walletState={walletState} address={address} onVote={handleVote} onConnect={connectWallet}/>
+          </main>
         </div>
       )}
 
-      {tab==='treasury' && (
-        <div style={{ maxWidth:620, margin:'36px auto', padding:'0 20px' }}>
-          <div style={{ ...serif, fontSize:22, color:'#f0f0f0', marginBottom:20 }}>Treasury</div>
-          <div style={{ ...card, marginBottom:12 }}>
-            <div style={{ ...mono, fontSize:9, letterSpacing:'0.15em', color:'#333', marginBottom:14 }}>ASSETS</div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-              {[['OPN TOKENS','142,500','#e0e0e0'],['BTC','0.58250000','#f7931a'],['PENDING OPS','2','#ffcc00'],['FULFILLED','5','#4488ff']].map(([l,v,c])=>(
-                <div key={l} style={{ background:'#060606', border:'1px solid #111', borderRadius:3, padding:12 }}>
-                  <div style={{ ...mono, fontSize:9, color:'#333', marginBottom:4 }}>{l}</div>
-                  <div style={{ ...serif, fontSize:20, color:c }}>{v}</div>
+      {tab==='treasury'&&(
+        <div style={{maxWidth:640,margin:'32px auto',padding:'0 20px'}}>
+          <h2 style={{...inter,fontSize:22,fontWeight:700,color:C.text,marginBottom:22}}>Treasury</h2>
+          <div style={{background:C.bgCard,border:`1px solid ${C.border}`,borderRadius:8,padding:16,marginBottom:14}}>
+            <div style={{...mono,fontSize:9,color:C.textDim,letterSpacing:'0.12em',marginBottom:14}}>ASSETS</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+              {[['OPN TOKENS','142,500',C.text],['BTC','0.58250000','#f59e0b'],['PENDING OPS','2',C.accent],['FULFILLED','5',C.blue]].map(([l,v,c])=>(
+                <div key={l} style={{padding:14,background:C.bg,border:`1px solid ${C.border}`,borderRadius:6}}>
+                  <div style={{...mono,fontSize:8,color:C.textDim,marginBottom:6,letterSpacing:'0.1em'}}>{l}</div>
+                  <div style={{...inter,fontSize:20,fontWeight:700,color:c}}>{v}</div>
                 </div>
               ))}
             </div>
           </div>
-          <div style={{ ...card }}>
-            <div style={{ ...mono, fontSize:9, letterSpacing:'0.15em', color:'#333', marginBottom:12 }}>PENDING TIMELOCK OPS</div>
+          <div style={{background:C.bgCard,border:`1px solid ${C.border}`,borderRadius:8,padding:16}}>
+            <div style={{...mono,fontSize:9,color:C.textDim,letterSpacing:'0.12em',marginBottom:12}}>PENDING TIMELOCK OPS</div>
             {[['Dev Fund — 0.5 BTC','18h 24m'],['MotoSwap LP — 50K OPN','5d 2h']].map(([l,e])=>(
-              <div key={l} style={{ display:'flex', justifyContent:'space-between', padding:'9px 11px', background:'#060606', border:'1px solid #111', borderRadius:3, marginBottom:6 }}>
-                <span style={{ ...mono, fontSize:10, color:'#888' }}>{l}</span>
-                <span style={{ ...mono, fontSize:10, color:'#ffcc00' }}>{e}</span>
+              <div key={l} style={{display:'flex',justifyContent:'space-between',padding:'10px 12px',background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,marginBottom:6}}>
+                <span style={{...inter,fontSize:12,color:C.textSub}}>{l}</span>
+                <span style={{...mono,fontSize:10,color:C.accent}}>{e}</span>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {tab==='relayer' && (
-        <div style={{ maxWidth:620, margin:'36px auto', padding:'0 20px' }}>
-          <div style={{ ...serif, fontSize:22, color:'#f0f0f0', marginBottom:20 }}>BTC Transfer Relayer</div>
-          <div style={{ ...card, marginBottom:12 }}>
-            {(() => { const rows = relayer ? [
-                ["STATUS", relayer.status.toUpperCase(), relayer.status==="running"?"#00ff88":"#ff4455"],
-                ["NETWORK", relayer.network.toUpperCase(), "#888"],
-                ["PENDING", String(relayer.pending), "#ffcc00"],
-                ["FULFILLED", String(relayer.fulfilled), "#4488ff"],
-                ["SAFETY CAP", fmtBTC(relayer.safetyCapSats), "#f7931a"],
-                ["MIN CONFS", String(relayer.minConfirmations), "#888"],
-              ] : [["STATUS","LOADING","#333"],["NETWORK","—","#333"],["PENDING","—","#333"]]; return (
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10 }}>
-              {rows.map(([l,v,c])=>(
-                <div key={l} style={{ background:"#060606", border:"1px solid #111", borderRadius:3, padding:12 }}>
-                  <div style={{ ...mono, fontSize:9, color:"#333", marginBottom:3 }}>{l}</div>
-                  <div style={{ ...serif, fontSize:16, color:c }}>{v}</div>
+      {tab==='relayer'&&(
+        <div style={{maxWidth:640,margin:'32px auto',padding:'0 20px'}}>
+          <h2 style={{...inter,fontSize:22,fontWeight:700,color:C.text,marginBottom:22}}>BTC Relayer</h2>
+          <div style={{background:C.bgCard,border:`1px solid ${C.border}`,borderRadius:8,padding:16,marginBottom:14}}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+              {(relayer?[
+                ['STATUS',relayer.status.toUpperCase(),relayer.status==='running'?C.green:C.red],
+                ['NETWORK',relayer.network.toUpperCase(),C.textSub],
+                ['PENDING',String(relayer.pending),C.accent],
+                ['FULFILLED',String(relayer.fulfilled),C.blue],
+                ['SAFETY CAP',fmtBTC(relayer.safetyCapSats),'#f59e0b'],
+                ['MIN CONFS',String(relayer.minConfirmations),C.textSub],
+              ]:[['STATUS','—',C.textDim],['NETWORK','—',C.textDim],['PENDING','—',C.textDim]]).map(([l,v,c])=>(
+                <div key={l} style={{padding:12,background:C.bg,border:`1px solid ${C.border}`,borderRadius:6}}>
+                  <div style={{...mono,fontSize:8,color:C.textDim,letterSpacing:'0.1em',marginBottom:4}}>{l}</div>
+                  <div style={{...inter,fontSize:15,fontWeight:600,color:c}}>{v}</div>
                 </div>
               ))}
             </div>
-          )})()}
           </div>
-          <div style={{ ...card, ...mono, fontSize:10, color:'#444', lineHeight:2 }}>
-            <div style={{ color:'#2a2a2a', marginBottom:8, fontSize:9, letterSpacing:'0.12em' }}>HOW IT WORKS</div>
-            Listens for <span style={{ color:'#888' }}>TreasuryBTCTransfer</span> events from executed proposals.<br/>
-            Waits for {relayer?.minConfirmations ?? 3} confirmations then broadcasts the Bitcoin tx.<br/>
-            Safety cap: <span style={{ color:'#f7931a' }}>{relayer ? fmtBTC(relayer.safetyCapSats) : '0.1 BTC'}</span> per transfer.<br/>
-            Set <span style={{ color:'#888' }}>RELAYER_KEY</span> env var to enable live signing.
+          <div style={{background:C.bgCard,border:`1px solid ${C.border}`,borderRadius:8,padding:16,...mono,fontSize:10,color:C.textSub,lineHeight:2}}>
+            <div style={{color:C.textDim,marginBottom:8,fontSize:9,letterSpacing:'0.1em'}}>HOW IT WORKS</div>
+            Listens for <span style={{color:C.text}}>TreasuryBTCTransfer</span> events from executed proposals.<br/>
+            Waits for {relayer?.minConfirmations??3} confirmations then broadcasts the BTC tx.<br/>
+            Safety cap: <span style={{color:'#f59e0b'}}>{relayer?fmtBTC(relayer.safetyCapSats):'0.1 BTC'}</span> per transfer.<br/>
+            Set <span style={{color:C.text}}>RELAYER_KEY</span> env var to enable live signing.
           </div>
         </div>
       )}
 
-      {tab==='deploy' && (
-        <DeployTab factory={factory} notify={notify} />
-      )}
+      {tab==='deploy'&&<DeployTab factory={factory} walletState={walletState} address={address} onConnect={connectWallet} notify={notify}/>}
 
-      <div style={{ position:'fixed', bottom:0, left:0, right:0, height:32, borderTop:'1px solid #0a0a0a', background:'#020202', display:'flex', alignItems:'center', gap:24, padding:'0 20px' }}>
+      <div style={{position:'fixed',bottom:0,left:0,right:0,height:30,borderTop:`1px solid ${C.border}`,background:C.bgCard,display:'flex',alignItems:'center',gap:22,padding:'0 20px'}}>
         {[
-          ['API', health, health==='online'?'#00ff88':health==='offline'?'#ff4455':'#888'],
-          ['FACTORY', factory ? short(factory.factoryAddress) : 'not set', factory?'#888':'#2a2a2a'],
-          ['NETWORK', factory?.network ?? 'testnet', '#444'],
-          ['DAOS', factory ? String(factory.totalDAOs) : '—', '#444'],
-          ['PROPOSALS', String(proposals.length), '#444'],
+          ['API',health,health==='online'?C.green:health==='offline'?C.red:C.textSub],
+          ['FACTORY',factory?trim(factory.factoryAddress):'not set',factory?C.textSub:C.textDim],
+          ['NETWORK',factory?.network??'testnet',C.textDim],
+          ['DAOS',factory?String(factory.totalDAOs):'—',C.textDim],
+          ['PROPOSALS',String(proposals.length),C.textDim],
         ].map(([l,v,c])=>(
-          <div key={l} style={{ display:'flex', gap:7, alignItems:'baseline' }}>
-            <span style={{ ...mono, fontSize:9, color:'#1a1a1a', letterSpacing:'0.1em' }}>{l}</span>
-            <span style={{ ...mono, fontSize:9, color:c }}>{v}</span>
+          <div key={l} style={{display:'flex',gap:6,alignItems:'baseline'}}>
+            <span style={{...mono,fontSize:8,color:C.textDim,letterSpacing:'0.1em'}}>{l}</span>
+            <span style={{...mono,fontSize:9,color:c}}>{v}</span>
           </div>
         ))}
       </div>
 
-      {toast && (
-        <div style={{ position:'fixed', bottom:40, right:20, background:toast.ok?'#00ff8812':'#ff445514', border:`1px solid ${toast.ok?'#00ff88':'#ff4455'}`, color:toast.ok?'#00ff88':'#ff4455', padding:'9px 14px', ...mono, fontSize:10, borderRadius:3, zIndex:9999, maxWidth:360 }}>
+      {toast&&(
+        <div style={{position:'fixed',bottom:42,right:20,background:toast.ok?C.greenBg:C.redBg,border:`1px solid ${toast.ok?C.greenRing:C.redRing}`,color:toast.ok?C.green:C.red,padding:'10px 16px',...inter,fontSize:12,fontWeight:500,borderRadius:8,zIndex:9999,maxWidth:380,boxShadow:'0 4px 24px #00000066'}}>
           {toast.msg}
         </div>
       )}
