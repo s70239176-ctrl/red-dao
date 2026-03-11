@@ -27,6 +27,9 @@ const C = {
 
 const STATE_COLOR: Record<number, string> = { 0:'#6b7280', 1:'#e8a930', 2:'#34d399', 3:'#f87171', 4:'#60a5fa', 5:'#2e3347' }
 
+// Inlined to avoid bundling @btc-vision/bitcoin (not in Railway image)
+const BTC_TESTNET = { messagePrefix:'\x18Bitcoin Signed Message:\n', bech32:'tb', bech32Opnet:'opt', bip32:{ public:70617039, private:70615956 }, pubKeyHash:111, scriptHash:196, wif:239 }
+
 const DEMO: Proposal[] = [
   { proposalId:'1', proposer:'bc1qalice', target:'0xMotoSwapRouter', btcValue:'0', voteStart:Date.now()/1e3-86400, voteEnd:Date.now()/1e3+172800, yesVotes:'680000', noVotes:'120000', abstainVotes:'50000', state:1, execAfter:0 },
   { proposalId:'2', proposer:'bc1qalice', target:'bc1qdevfund', btcValue:'50000000', voteStart:Date.now()/1e3-604800, voteEnd:Date.now()/1e3-345600, yesVotes:'820000', noVotes:'45000', abstainVotes:'30000', state:2, execAfter:Math.floor(Date.now()/1e3)+86400 },
@@ -243,9 +246,7 @@ function DeployTab({ factory, walletState, address, onConnect, notify }: {
       if(!res.ok) throw new Error('DAOFactory.wasm not found — place it in client/public/')
       const bytecode=new Uint8Array(await res.arrayBuffer())
       const {JSONRpcProvider}=await import('opnet')
-      const bitcoin=await import('@btc-vision/bitcoin')
-      const testnet=bitcoin.networks.testnet
-      const provider=new JSONRpcProvider('https://testnet.opnet.org',testnet)
+      const provider=new JSONRpcProvider('https://testnet.opnet.org',BTC_TESTNET as never)
       const utxos=await provider.utxoManager.getUTXOs({address,mergePendingUTXOs:false,filterSpentUTXOs:true})
       if(!utxos?.length) throw new Error(`No UTXOs for ${address} — fund with testnet BTC first`)
       const r=await window.opnet.web3.deployContract({bytecode,utxos,feeRate:10,priorityFee:330n,gasSatFee:1000n})
@@ -363,13 +364,11 @@ export default function App() {
     notify('Preparing transaction…')
     try{
       const {JSONRpcProvider}=await import('opnet')
-      const bitcoin=await import('@btc-vision/bitcoin')
-      const testnet=bitcoin.networks.testnet
-      const provider=new JSONRpcProvider('https://testnet.opnet.org',testnet)
+      const provider=new JSONRpcProvider('https://testnet.opnet.org',BTC_TESTNET as never)
       const utxos=await provider.utxoManager.getUTXOs({address,mergePendingUTXOs:false,filterSpentUTXOs:true})
       if(!utxos?.length) throw new Error(`No UTXOs for ${address}`)
       const calldata=support===0?encodeExec(p.proposalId):encodeVote(p.proposalId,support)
-      await w.web3.signAndBroadcastInteraction({to:p.target,calldata,utxos,feeRate:10,priorityFee:330n,gasSatFee:1000n,network:testnet})
+      await w.web3.signAndBroadcastInteraction({to:p.target,calldata,utxos,feeRate:10,priorityFee:330n,gasSatFee:1000n,network:BTC_TESTNET})
       notify(`${support===0?'Execute':['','FOR','AGAINST','ABSTAIN'][support]} transaction broadcast ✓`)
     }catch(e:unknown){notify((e as Error).message??'Transaction failed',false)}
   },[address,notify])
