@@ -73,7 +73,7 @@ function WalletBadge({ state, address, onConnect }: { state:WalletState; address
   if (state==='connected') return (
     <div style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 14px', background:C.accentBg, border:`1px solid ${C.accentRing}`, borderRadius:20 }}>
       <span style={{ width:6, height:6, borderRadius:'50%', background:C.accent, display:'inline-block' }}/>
-      <span style={{ ...mono, fontSize:10, color:C.accent }}>{trim(address,22)}</span>
+      <span style={{ ...mono, fontSize:10, color:C.accent }}>{trim(address||'',22)}</span>
     </div>
   )
   return (
@@ -116,7 +116,7 @@ function ProposalRow({ p, active, onClick }: { p:Proposal; active:boolean; onCli
         <Pill state={p.state}/>
       </div>
       <div style={{ ...inter, fontSize:12, fontWeight:500, color:C.text, marginBottom:7, lineHeight:1.4 }}>
-        {Number(p.btcValue)>0?`⊕ ${fmtBTC(p.btcValue)} → ${trim(p.target,22)}`:`→ ${trim(p.target,28)}`}
+        {Number(p.btcValue)>0?`⊕ ${fmtBTC(p.btcValue)} → ${trim(p.target||'',22)}`:`→ ${trim(p.target||'',28)}`}
       </div>
       <VoteBar yes={p.yesVotes} no={p.noVotes} abs={p.abstainVotes}/>
       {p.state===1&&<div style={{ ...mono, fontSize:9, color:C.textSub, marginTop:5 }}>closes {timeLeft(p.voteEnd)}</div>}
@@ -148,7 +148,7 @@ function VotePanel({ p, walletState, address, onVote, onConnect }: {
           </button>
         ))}
       </div>
-      <div style={{ ...mono, fontSize:9, color:C.textDim }}>signing as <span style={{ color:C.textSub }}>{trim(address,26)}</span></div>
+      <div style={{ ...mono, fontSize:9, color:C.textDim }}>signing as <span style={{ color:C.textSub }}>{trim(address||'',26)}</span></div>
     </>
   )
 }
@@ -176,7 +176,7 @@ function Detail({ p, walletState, address, onVote, onConnect }: {
         <div>
           <div style={{ ...mono, fontSize:9, color:C.textSub, marginBottom:4 }}>PROPOSAL #{p.proposalId}</div>
           <div style={{ ...inter, fontSize:14, fontWeight:600, color:C.text, lineHeight:1.4 }}>
-            {Number(p.btcValue)>0?`Transfer ${fmtBTC(p.btcValue)}`:`Call ${trim(p.target,24)}`}
+            {Number(p.btcValue)>0?`Transfer ${fmtBTC(p.btcValue)}`:`Call ${trim(p.target||'',24)}`}
           </div>
         </div>
         <Pill state={p.state}/>
@@ -239,6 +239,8 @@ function DeployTab({ factory, walletState, address, onConnect, notify }: {
 
   const deploy=async()=>{
     if(!window.opnet?.web3){notify('OPWallet not connected',false);return}
+    const addr=(address||'').trim()
+    if(!addr){notify('Wallet address not loaded — disconnect and reconnect wallet',false);return}
     if(!form.daoName||!form.tokenName||!form.tokenSymbol){notify('Fill all name fields',false);return}
     setDs('deploying');setError('')
     try{
@@ -247,9 +249,9 @@ function DeployTab({ factory, walletState, address, onConnect, notify }: {
       const bytecode=new Uint8Array(await res.arrayBuffer())
       const {JSONRpcProvider}=await import('opnet')
       const provider=new JSONRpcProvider('https://testnet.opnet.org',BTC_TESTNET as never)
-      const utxos=await provider.utxoManager.getUTXOs({address,mergePendingUTXOs:false,filterSpentUTXOs:true})
-      if(!utxos?.length) throw new Error(`No UTXOs for ${address} — fund with testnet BTC first`)
-      const r=await window.opnet.web3.deployContract({bytecode,utxos,feeRate:10,priorityFee:330n,gasSatFee:1000n})
+      const utxos=await provider.utxoManager.getUTXOs({address:addr,mergePendingUTXOs:false,filterSpentUTXOs:true})
+      if(!utxos?.length) throw new Error(`No UTXOs for ${addr} — fund with testnet BTC first`)
+      const r=await window.opnet.web3.deployContract({bytecode,utxos,feeRate:10,priorityFee:330n,gasSatFee:1000n,from:addr})
       setResult(r.contractAddress);setDs('done');notify(`Deployed: ${r.contractAddress}`)
     }catch(e:unknown){
       const msg=(e as Error).message??String(e)
@@ -271,7 +273,7 @@ function DeployTab({ factory, walletState, address, onConnect, notify }: {
           <div>
             <div style={{...mono,fontSize:9,color:C.textDim,letterSpacing:'0.1em',marginBottom:4}}>WALLET</div>
             <div style={{...mono,fontSize:11,color:walletState==='connected'?C.green:C.textSub}}>
-              {walletState==='connected'?`● ${trim(address,26)}`:'○ Not connected'}
+              {walletState==='connected'?`● ${trim(address||'',26)}`:'○ Not connected'}
             </div>
           </div>
           {walletState!=='connected'&&<button onClick={onConnect} style={{padding:'7px 16px',background:C.accentBg,border:`1px solid ${C.accentRing}`,color:C.accent,...mono,fontSize:9,cursor:'pointer',borderRadius:6}}>CONNECT</button>}
@@ -339,11 +341,11 @@ export default function App() {
   useEffect(()=>{
     const w=window.opnet; if(!w) return
     w.getAccounts().then(accs=>{
-      if(accs?.length){setAddress(accs[0]);setWalletState('connected')}
+      if(accs?.length){setAddress(accs[0]||'');setWalletState('connected')}
     }).catch(()=>{})
     w.on('accountsChanged',(accs:string[])=>{
-      if(!accs.length){setWalletState('disconnected');setAddress('')}
-      else{setAddress(accs[0]);setWalletState('connected')}
+      if(!accs?.length){setWalletState('disconnected');setAddress('')}
+      else{setAddress(accs[0]||'');setWalletState('connected')}
     })
   },[])
 
@@ -354,21 +356,27 @@ export default function App() {
     try{
       const accs=await w.requestAccounts()
       if(!accs?.length) throw new Error('No accounts returned')
-      setAddress(accs[0]);setWalletState('connected');notify('Wallet connected ✓')
+      const acc=accs[0]||''
+      if(!acc.trim()) throw new Error('Wallet returned empty address')
+      setAddress(acc);setWalletState('connected');notify('Wallet connected ✓')
     }catch(e:unknown){setWalletState('disconnected');notify((e as Error).message??'Connection failed',false)}
   },[notify])
 
   const handleVote=useCallback(async(p:Proposal,support:number)=>{
     const w=window.opnet
     if(!isOPWallet(w)){notify('Connect wallet first',false);return}
+    const addr=(address||'').trim()
+    if(!addr){notify('Wallet address not loaded — disconnect and reconnect wallet',false);return}
+    const contractAddr=(p.target||'').trim()
+    if(!contractAddr){notify('Proposal has no target address',false);return}
     notify('Preparing transaction…')
     try{
       const {JSONRpcProvider}=await import('opnet')
       const provider=new JSONRpcProvider('https://testnet.opnet.org',BTC_TESTNET as never)
-      const utxos=await provider.utxoManager.getUTXOs({address,mergePendingUTXOs:false,filterSpentUTXOs:true})
-      if(!utxos?.length) throw new Error(`No UTXOs for ${address}`)
+      const utxos=await provider.utxoManager.getUTXOs({address:addr,mergePendingUTXOs:false,filterSpentUTXOs:true})
+      if(!utxos?.length) throw new Error(`No UTXOs for ${addr} — fund wallet with testnet BTC first`)
       const calldata=support===0?encodeExec(p.proposalId):encodeVote(p.proposalId,support)
-      await w.web3.signAndBroadcastInteraction({to:p.target,calldata,utxos,feeRate:10,priorityFee:330n,gasSatFee:1000n,network:BTC_TESTNET})
+      await w.web3.signAndBroadcastInteraction({from:addr,to:contractAddr,calldata,utxos,feeRate:10,priorityFee:330n,gasSatFee:1000n,network:BTC_TESTNET})
       notify(`${support===0?'Execute':['','FOR','AGAINST','ABSTAIN'][support]} transaction broadcast ✓`)
     }catch(e:unknown){notify((e as Error).message??'Transaction failed',false)}
   },[address,notify])
@@ -493,7 +501,7 @@ export default function App() {
       <div style={{position:'fixed',bottom:0,left:0,right:0,height:30,borderTop:`1px solid ${C.border}`,background:C.bgCard,display:'flex',alignItems:'center',gap:22,padding:'0 20px'}}>
         {[
           ['API',health,health==='online'?C.green:health==='offline'?C.red:C.textSub],
-          ['FACTORY',factory?trim(factory.factoryAddress):'not set',factory?C.textSub:C.textDim],
+          ['FACTORY',factory?trim(factory.factoryAddress||''):'not set',factory?C.textSub:C.textDim],
           ['NETWORK',factory?.network??'testnet',C.textDim],
           ['DAOS',factory?String(factory.totalDAOs):'—',C.textDim],
           ['PROPOSALS',String(proposals.length),C.textDim],
