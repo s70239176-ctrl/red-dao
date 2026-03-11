@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { isOPWallet } from '@btc-vision/transaction'
+import { JSONRpcProvider } from 'opnet'
+import { TransactionFactory, isOPWallet } from '@btc-vision/transaction'
 import { api, type FactoryInfo, type Proposal, type RelayerStatus } from './api'
 
 const STATE_LABEL = ['PENDING', 'ACTIVE', 'SUCCEEDED', 'DEFEATED', 'EXECUTED', 'CANCELLED']
@@ -218,7 +219,6 @@ function DeployTab({factory,walletState,address,onConnect,notify}:{factory:Facto
       const res=await fetch('/DAOFactory.wasm')
       if(!res.ok) throw new Error('DAOFactory.wasm not found')
       const bytecode=new Uint8Array(await res.arrayBuffer())
-      const {JSONRpcProvider}=await import('opnet')
       const provider=new JSONRpcProvider('https://testnet.opnet.org')
       const utxos=await provider.utxoManager.getUTXOs({address:addr,mergePendingUTXOs:false,filterSpentUTXOs:true})
       if(!utxos?.length) throw new Error(`No UTXOs for ${addr} — fund with testnet BTC first`)
@@ -343,7 +343,6 @@ export default function App() {
     if(!contractAddr){notify('Proposal has no target address',false);return}
     notify('Fetching UTXOs…')
     try{
-      const {JSONRpcProvider}=await import('opnet')
       const provider=new JSONRpcProvider('https://testnet.opnet.org')
       const utxos=await provider.utxoManager.getUTXOs({address:addr,mergePendingUTXOs:false,filterSpentUTXOs:true})
       if(!utxos?.length) throw new Error(`No UTXOs for ${addr} — fund wallet with testnet BTC first`)
