@@ -99,6 +99,9 @@ async function sendInteraction(provider: InstanceType<typeof JSONRpcProvider>, a
   ])
   const contractHex: string = contractPubkeyInfo?.toHex?.() ?? contractPubkeyInfo
   if (!contractHex) throw new Error(`Could not resolve public key for contract: ${contractAddr}`)
+  console.log('[sendInteraction] contractAddr:', contractAddr)
+  console.log('[sendInteraction] contractHex:', contractHex, 'len:', contractHex?.length)
+  console.log('[sendInteraction] challenge present:', !!challenge)
   const tf = new TransactionFactory()
   const signed = await tf.signInteraction({
     from: addr,
