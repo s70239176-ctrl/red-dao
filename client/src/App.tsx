@@ -383,7 +383,7 @@ function DeployTab({ factory, walletState, address, onConnect, notify }: {
       <div style={{marginTop:22,padding:14,background:C.bgCard,border:`1px solid ${C.border}`,borderRadius:8,...mono,fontSize:10,color:C.textSub,lineHeight:2}}>
         <div style={{color:C.textDim,fontSize:9,letterSpacing:'0.1em',marginBottom:6}}>CURRENT FACTORY</div>
         Factory: <span style={{color:C.text}}>{factory?.factoryAddress||'—'}</span><br/>
-        Network: <span style={{color:C.text}}>{factory?.network||'testnet'}</span><br/>
+        Network: <span style={{color:C.text}}>{factory?.network||'regtest'}</span><br/>
         DAOs: <span style={{color:C.text}}>{factory?.totalDAOs??'—'}</span>
       </div>
     </div>
@@ -669,7 +669,7 @@ export default function App() {
         {[
           ['API',health,health==='online'?C.green:health==='offline'?C.red:C.textSub],
           ['FACTORY',factory?trim(factory.factoryAddress):'not set',factory?C.textSub:C.textDim],
-          ['NETWORK',factory?.network??'testnet',C.textDim],
+          ['NETWORK',factory?.network??'regtest',C.textDim],
           ['DAOS',factory?String(factory.totalDAOs):'—',C.textDim],
           ['PROPOSALS',String(proposals.length),C.textDim],
         ].map(([l,v,c])=>(

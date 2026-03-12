@@ -4,7 +4,7 @@ interface Transfer { opId:string; recipient:string; amountSats:string; eventType
 const queue: Transfer[] = []
 const fulfilled = new Set<string>()
 relayerRouter.get('/status', (_req: Request, res: Response) => {
-  res.json({ status:'running', network:process.env.OPNET_NETWORK||'testnet', pending:queue.filter(t=>t.status==='pending').length, fulfilled:fulfilled.size, safetyCapSats:process.env.RELAYER_MAX_SATS||'10000000', minConfirmations:parseInt(process.env.RELAYER_MIN_CONFS||'3',10) })
+  res.json({ status:'running', network:process.env.OPNET_NETWORK||'regtest', pending:queue.filter(t=>t.status==='pending').length, fulfilled:fulfilled.size, safetyCapSats:process.env.RELAYER_MAX_SATS||'10000000', minConfirmations:parseInt(process.env.RELAYER_MIN_CONFS||'3',10) })
 })
 relayerRouter.get('/queue', (_req: Request, res: Response) => { res.json({ transfers:queue.filter(t=>t.status==='pending') }) })
 relayerRouter.post('/queue', (req: Request, res: Response) => {
