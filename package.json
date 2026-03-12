@@ -2,10 +2,10 @@
   "name": "opnet-dao-factory",
   "version": "1.0.0",
   "private": true,
-  "description": "OPNet DAO Factory \u2014 on-chain governance on Bitcoin L1",
+  "description": "OPNet DAO Factory — on-chain governance on Bitcoin L1",
   "scripts": {
     "build": "vite build",
-    "start": "tsx src/server.ts",
+    "start": "npx tsx src/server.ts",
     "dev": "concurrently \"vite\" \"tsx watch src/server.ts\"",
     "postinstall": "node scripts/patch-opnet.cjs"
   },
@@ -17,7 +17,8 @@
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "helmet": "^8.0.0",
-    "opnet": "^1.7.34"
+    "opnet": "^1.7.34",
+    "tsx": "^4.19.2"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
