@@ -90,34 +90,6 @@ function bech32mDecode(addr: string): Uint8Array {
 
 // Sign and broadcast an interaction using TransactionFactory + OPNet provider challenge
 // 'contract' field = 32-byte x-only pubkey of the contract, fetched via getPublicKeyInfo
-async function sendInteraction(provider: InstanceType<typeof JSONRpcProvider>, addr: string, contractAddr: string, calldata: Buffer, feeRate = 10) {
-  const utxos = await provider.utxoManager.getUTXOs({address:addr, mergePendingUTXOs:false, filterSpentUTXOs:true})
-  if (!utxos?.length) throw new Error(`No UTXOs for ${addr} — fund wallet with testnet BTC`)
-  const [challenge, contractPubkeyInfo] = await Promise.all([
-    (provider as any).getChallenge(),
-    (provider as any).getPublicKeyInfo(contractAddr, true),
-  ])
-  const contractHex: string = contractPubkeyInfo?.toHex?.() ?? contractPubkeyInfo
-  if (!contractHex) throw new Error(`Could not resolve public key for contract: ${contractAddr}`)
-  console.log('[sendInteraction] contractAddr:', contractAddr)
-  console.log('[sendInteraction] contractHex:', contractHex, 'len:', contractHex?.length)
-  console.log('[sendInteraction] challenge present:', !!challenge)
-  const tf = new TransactionFactory()
-  const signed = await tf.signInteraction({
-    from: addr,
-    to: contractAddr,
-    contract: contractHex,
-    calldata,
-    utxos,
-    feeRate,
-    priorityFee: 330n,
-    gasSatFee: 1000n,
-    challenge,
-    network: BTC_TESTNET as never,
-  } as never)
-  if (signed.fundingTransaction) await provider.sendRawTransaction(signed.fundingTransaction, false)
-  await provider.sendRawTransaction(signed.interactionTransaction, false)
-}
 
 function encodePropose(title: string, description: string, target: string, btcSats: bigint, delayStart: bigint): Uint8Array {
   // selector: createProposal(string,string,address,uint256,bytes,uint64) = SHA256[0:4]
@@ -548,31 +520,31 @@ export default function App() {
     if(!isOPWallet(window.opnet)){notify('Connect wallet first',false);return}
     const addr=(address||'').trim()
     if(!addr){notify('Wallet address not loaded — disconnect and reconnect',false);return}
-    const contractAddr=(p.target||'').trim()
-    if(!contractAddr){notify('Proposal has no target address',false);return}
+    if(!factory){notify('No DAO deployed yet — go to Deploy tab first',false);return}
+    const contractAddr=(factory.factoryAddress||'').trim()
+    if(!contractAddr){notify('No DAO contract address configured',false);return}
     notify('Preparing transaction…')
     try{
-      notify('Step 1: loading modules…')
-      notify('Step 2: fetching UTXOs…')
+      notify('Fetching UTXOs…')
       const provider=new JSONRpcProvider('https://testnet.opnet.org')
       const utxos=await provider.utxoManager.getUTXOs({address:addr,mergePendingUTXOs:false,filterSpentUTXOs:true})
       if(!utxos?.length) throw new Error(`No UTXOs for ${addr} — fund wallet with testnet BTC first`)
-      notify(`Step 3: signing (${utxos.length} UTXOs)…`)
       const calldata=Buffer.from(support===0?encodeExec(p.proposalId):encodeVote(p.proposalId,support))
-      notify('Step 3: fetching contract key…')
-      const contractPubKey = await provider.getPublicKeyInfo(contractAddr)
-      if(!contractPubKey) throw new Error('Contract not found on-chain: ' + contractAddr)
+      notify('Fetching contract key…')
+      const contractPubKey = await (provider as any).getPublicKeyInfo(contractAddr)
+      if(!contractPubKey) throw new Error('Contract not indexed on-chain yet: ' + contractAddr)
+      notify('Signing…')
       await (window.opnet as any).web3.signAndBroadcastInteraction({
         from:addr, to:contractAddr, contract:(contractPubKey as any).toHex(),
         calldata, utxos, feeRate:10, priorityFee:330n, gasSatFee:1000n,
       })
-      notify(`${support===0?'Execute':['','FOR','AGAINST','ABSTAIN'][support]} transaction broadcast ✓`)
+      notify(`${support===0?'Execute':['','FOR','AGAINST','ABSTAIN'][support]} broadcast ✓`)
     }catch(e:unknown){
       const err=e as Error
       console.error('[DAO vote error]',err)
       notify(err.message??'Transaction failed',false)
     }
-  },[address,notify])
+  },[address,factory,notify])
 
   useEffect(()=>{
     api.health().then((h:{ok:boolean})=>setHealth(h.ok?'online':'degraded')).catch(()=>setHealth('offline'))
