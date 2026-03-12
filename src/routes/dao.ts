@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express'
 export const daoRouter = Router()
-const RPC = process.env.OPNET_RPC || 'https://regtest.opnet.org'
+const RPC = process.env.OPNET_RPC || 'https://testnet.opnet.org'
 const FACTORY = process.env.FACTORY_ADDRESS || ''
-const NETWORK = process.env.OPNET_NETWORK || 'regtest'
+const NETWORK = process.env.OPNET_NETWORK || 'testnet'
 async function opnetCall(to: string, calldata: string) {
   const r = await fetch(RPC, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ jsonrpc:'2.0', id:1, method:'opnet_call', params:{ to, calldata, network:NETWORK } }) })
   const json = (await r.json()) as { result?: unknown; error?: { message: string } }

@@ -310,7 +310,7 @@ function DeployTab({ factory, walletState, address, onConnect, notify }: {
       const res=await fetch('/DAOFactory.wasm')
       if(!res.ok) throw new Error('DAOFactory.wasm not found — place it in client/public/')
       const bytecode=new Uint8Array(await res.arrayBuffer())
-      const provider=new JSONRpcProvider('https://regtest.opnet.org')
+      const provider=new JSONRpcProvider('https://testnet.opnet.org')
       const utxos=await provider.utxoManager.getUTXOs({address:addr,mergePendingUTXOs:false,filterSpentUTXOs:true})
       if(!utxos?.length) throw new Error(`No UTXOs for ${addr} — fund with testnet BTC first`)
       const challenge = await (provider as any).getChallenge()
@@ -383,7 +383,7 @@ function DeployTab({ factory, walletState, address, onConnect, notify }: {
       <div style={{marginTop:22,padding:14,background:C.bgCard,border:`1px solid ${C.border}`,borderRadius:8,...mono,fontSize:10,color:C.textSub,lineHeight:2}}>
         <div style={{color:C.textDim,fontSize:9,letterSpacing:'0.1em',marginBottom:6}}>CURRENT FACTORY</div>
         Factory: <span style={{color:C.text}}>{factory?.factoryAddress||'—'}</span><br/>
-        Network: <span style={{color:C.text}}>{factory?.network||'regtest'}</span><br/>
+        Network: <span style={{color:C.text}}>{factory?.network||'testnet'}</span><br/>
         DAOs: <span style={{color:C.text}}>{factory?.totalDAOs??'—'}</span>
       </div>
     </div>
@@ -421,7 +421,7 @@ function ProposeTab({ factory, walletState, address, onConnect, notify }: {
         form.title.trim(), form.description.trim(), form.target.trim(),
         BigInt(form.btcSats||'0'), BigInt(form.delayStart||'0')
       )
-      const provider = new JSONRpcProvider('https://regtest.opnet.org')
+      const provider = new JSONRpcProvider('https://testnet.opnet.org')
       const utxos = await provider.utxoManager.getUTXOs({address:addr,mergePendingUTXOs:false,filterSpentUTXOs:true})
       if(!utxos?.length) throw new Error(`No UTXOs for ${addr} — fund wallet with testnet BTC`)
       const contractPubKey = await provider.getPublicKeyInfo(daoAddr)
@@ -526,7 +526,7 @@ export default function App() {
     notify('Preparing transaction…')
     try{
       notify('Fetching UTXOs…')
-      const provider=new JSONRpcProvider('https://regtest.opnet.org')
+      const provider=new JSONRpcProvider('https://testnet.opnet.org')
       const utxos=await provider.utxoManager.getUTXOs({address:addr,mergePendingUTXOs:false,filterSpentUTXOs:true})
       if(!utxos?.length) throw new Error(`No UTXOs for ${addr} — fund wallet with testnet BTC first`)
       const calldata=Buffer.from(support===0?encodeExec(p.proposalId):encodeVote(p.proposalId,support))
@@ -669,7 +669,7 @@ export default function App() {
         {[
           ['API',health,health==='online'?C.green:health==='offline'?C.red:C.textSub],
           ['FACTORY',factory?trim(factory.factoryAddress):'not set',factory?C.textSub:C.textDim],
-          ['NETWORK',factory?.network??'regtest',C.textDim],
+          ['NETWORK',factory?.network??'testnet',C.textDim],
           ['DAOS',factory?String(factory.totalDAOs):'—',C.textDim],
           ['PROPOSALS',String(proposals.length),C.textDim],
         ].map(([l,v,c])=>(
