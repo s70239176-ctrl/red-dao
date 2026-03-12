@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { JSONRpcProvider } from 'opnet'
-import { TransactionFactory, isOPWallet } from '@btc-vision/transaction'
+import { isOPWallet } from '@btc-vision/transaction'
 import { api, type FactoryInfo, type Proposal, type RelayerStatus } from './api'
 
 const STATE_LABEL = ['PENDING', 'ACTIVE', 'SUCCEEDED', 'DEFEATED', 'EXECUTED', 'CANCELLED']
@@ -310,14 +310,9 @@ function DeployTab({ factory, walletState, address, onConnect, notify }: {
       const provider=new JSONRpcProvider('https://testnet.opnet.org')
       const utxos=await provider.utxoManager.getUTXOs({address:addr,mergePendingUTXOs:false,filterSpentUTXOs:true})
       if(!utxos?.length) throw new Error(`No UTXOs for ${addr} — fund with testnet BTC first`)
-      const factory=new TransactionFactory()
-      // signDeployment auto-detects OPWallet — canonical SDK approach
-      const r=await factory.signDeployment({
+      const r=await (window.opnet as any).web3.deployContract({
         bytecode, utxos, feeRate:10, priorityFee:330n, gasSatFee:1000n,
-        network:BTC_TESTNET as never,
-      } as never)
-      if(r.transaction[0]) await provider.sendRawTransaction(r.transaction[0],false)
-      await provider.sendRawTransaction(r.transaction[1],false)
+      })
       setResult(r.contractAddress);setDs('done');notify(`Deployed: ${r.contractAddress}`)
     }catch(e:unknown){
       const msg=(e as Error).message??String(e)
@@ -421,15 +416,11 @@ function ProposeTab({ factory, walletState, address, onConnect, notify }: {
       const provider = new JSONRpcProvider('https://testnet.opnet.org')
       const utxos = await provider.utxoManager.getUTXOs({address:addr,mergePendingUTXOs:false,filterSpentUTXOs:true})
       if(!utxos?.length) throw new Error(`No UTXOs for ${addr} — fund wallet with testnet BTC`)
-      const tf = new TransactionFactory()
-      const signed = await tf.signInteraction({
+      const result = await (window.opnet as any).web3.signAndBroadcastInteraction({
         from:addr, to:daoAddr, calldata:Buffer.from(calldata), utxos,
         feeRate:10, priorityFee:330n, gasSatFee:1000n,
-        network:BTC_TESTNET as never,
-      } as never)
-      if(signed.fundingTransaction) await provider.sendRawTransaction(signed.fundingTransaction,false)
-      await provider.sendRawTransaction(signed.interactionTransaction,false)
-      setTxid('broadcast ✓')
+      })
+      setTxid(`broadcast ✓ ${result?.[3]??''}`)
       notify('Proposal submitted ✓')
     } catch(e:unknown){
       notify((e as Error).message??'Failed',false)
@@ -529,14 +520,10 @@ export default function App() {
       if(!utxos?.length) throw new Error(`No UTXOs for ${addr} — fund wallet with testnet BTC first`)
       notify(`Step 3: signing (${utxos.length} UTXOs)…`)
       const calldata=Buffer.from(support===0?encodeExec(p.proposalId):encodeVote(p.proposalId,support))
-      const factory=new TransactionFactory()
-      const signed=await factory.signInteraction({
+      await (window.opnet as any).web3.signAndBroadcastInteraction({
         from:addr, to:contractAddr, calldata, utxos,
         feeRate:10, priorityFee:330n, gasSatFee:1000n,
-        network:BTC_TESTNET as never,
-      } as never)
-      if(signed.fundingTransaction) await provider.sendRawTransaction(signed.fundingTransaction,false)
-      await provider.sendRawTransaction(signed.interactionTransaction,false)
+      })
       notify(`${support===0?'Execute':['','FOR','AGAINST','ABSTAIN'][support]} transaction broadcast ✓`)
     }catch(e:unknown){
       const err=e as Error
