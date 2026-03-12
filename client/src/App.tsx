@@ -6,17 +6,29 @@ import { api, type FactoryInfo, type Proposal, type RelayerStatus } from './api'
 const STATE_LABEL = ['PENDING', 'ACTIVE', 'SUCCEEDED', 'DEFEATED', 'EXECUTED', 'CANCELLED']
 
 const C = {
-  bg:'#0b0d12', bgCard:'#0f1118', bgElevated:'#161925',
-  border:'#1c2030', borderMid:'#252c3e',
-  text:'#dde1ec', textSub:'#6b7280', textDim:'#2e3347',
-  accent:'#e8a930', accentBg:'#e8a93014', accentRing:'#e8a93030',
-  green:'#34d399', greenBg:'#34d39910', greenRing:'#34d39930',
-  red:'#f87171', redBg:'#f8717110', redRing:'#f8717130',
-  blue:'#60a5fa',
+  bg:         '#0b0d12',
+  bgCard:     '#0f1118',
+  bgElevated: '#161925',
+  border:     '#1c2030',
+  borderMid:  '#252c3e',
+  text:       '#dde1ec',
+  textSub:    '#6b7280',
+  textDim:    '#2e3347',
+  accent:     '#e8a930',
+  accentBg:   '#e8a93014',
+  accentRing: '#e8a93030',
+  green:      '#34d399',
+  greenBg:    '#34d39910',
+  greenRing:  '#34d39930',
+  red:        '#f87171',
+  redBg:      '#f8717110',
+  redRing:    '#f8717130',
+  blue:       '#60a5fa',
 }
-const STATE_COLOR: Record<number,string> = {0:'#6b7280',1:'#e8a930',2:'#34d399',3:'#f87171',4:'#60a5fa',5:'#2e3347'}
-// Inline network object — avoids bundling @btc-vision/bitcoin
-const BTC_TESTNET = { messagePrefix:'\x18Bitcoin Signed Message:\n', bech32:'opt', bech32Opnet:'opt', bip32:{public:70617039,private:70615956}, pubKeyHash:111, scriptHash:196, wif:239 }
+
+const STATE_COLOR: Record<number, string> = { 0:'#6b7280', 1:'#e8a930', 2:'#34d399', 3:'#f87171', 4:'#60a5fa', 5:'#2e3347' }
+
+const BTC_TESTNET = { messagePrefix:'\x18Bitcoin Signed Message:\n', bech32:'tb', bech32Opnet:'opt', bip32:{ public:70617039, private:70615956 }, pubKeyHash:111, scriptHash:196, wif:239 }
 
 const DEMO: Proposal[] = [
   { proposalId:'1', proposer:'bc1qalice', target:'0xMotoSwapRouter', btcValue:'0', voteStart:Date.now()/1e3-86400, voteEnd:Date.now()/1e3+172800, yesVotes:'680000', noVotes:'120000', abstainVotes:'50000', state:1, execAfter:0 },
@@ -26,168 +38,242 @@ const DEMO: Proposal[] = [
   { proposalId:'5', proposer:'bc1qdave', target:'0xTimelockGuardian', btcValue:'0', voteStart:Date.now()/1e3-2592000, voteEnd:Date.now()/1e3-2332800, yesVotes:'950000', noVotes:'12000', abstainVotes:'5000', state:4, execAfter:0 },
 ]
 
-const fmt    = (n:string|number) => Number(n).toLocaleString()
-const fmtBTC = (s:string|number) => (Number(s)/1e8).toFixed(8)+' BTC'
-const pct    = (v:string|number,t:string|number) => Number(t)===0?'0%':((Number(v)/Number(t))*100).toFixed(1)+'%'
-const ellipsis = (s:string,n=20) => s.length>n?s.slice(0,8)+'…'+s.slice(-6):s
-function timeLeft(end:number) {
-  const s=Math.floor(end-Date.now()/1e3); if(s<0) return 'ended'
-  const d=Math.floor(s/86400),h=Math.floor((s%86400)/3600),m=Math.floor((s%3600)/60)
+const fmt    = (n: string|number) => Number(n).toLocaleString()
+const fmtBTC = (s: string|number) => (Number(s)/1e8).toFixed(8)+' BTC'
+const pct    = (v: string|number, t: string|number) => Number(t)===0 ? '0%' : ((Number(v)/Number(t))*100).toFixed(1)+'%'
+const trim   = (s: string, n=20) => s.length>n ? s.slice(0,8)+'…'+s.slice(-6) : s
+function timeLeft(end: number) {
+  const s = Math.floor(end - Date.now()/1e3)
+  if (s<0) return 'ended'
+  const d=Math.floor(s/86400), h=Math.floor((s%86400)/3600), m=Math.floor((s%3600)/60)
   return d>0?`${d}d ${h}h`:h>0?`${h}h ${m}m`:`${m}m`
 }
 
-function encodeVote(proposalId:string, support:number): Uint8Array {
-  const buf=new Uint8Array(4+32+1)
-  buf[0]=0x56;buf[1]=0x78;buf[2]=0x13;buf[3]=0x88
+function encodeVote(proposalId: string, support: number): Uint8Array {
+  const buf = new Uint8Array(4+32+1)
+  buf[0]=0x48;buf[1]=0x52;buf[2]=0x50;buf[3]=0x55
   const id=BigInt(proposalId)
   for(let i=0;i<32;i++) buf[4+31-i]=Number((id>>BigInt(i*8))&0xffn)
   buf[36]=support; return buf
 }
-function encodeExec(proposalId:string): Uint8Array {
-  const buf=new Uint8Array(4+32)
-  buf[0]=0xfe;buf[1]=0x0d;buf[2]=0x94;buf[3]=0x05
+function encodeExec(proposalId: string): Uint8Array {
+  const buf = new Uint8Array(4+32)
+  buf[0]=0xbb;buf[1]=0x93;buf[2]=0x4a;buf[3]=0x23
   const id=BigInt(proposalId)
   for(let i=0;i<32;i++) buf[4+31-i]=Number((id>>BigInt(i*8))&0xffn)
   return buf
 }
 
-const mono  = {fontFamily:"'Space Mono',monospace"} as const
-const inter = {fontFamily:"'Inter',system-ui,sans-serif"} as const
+function bech32mDecode(addr: string): Uint8Array {
+  // Manually decode bech32m (tb1p...) to 32-byte x-only pubkey
+  // bech32m charset: qpzry9x8gf2tvdw0s3jn54khce6mua7l
+  const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l'
+  const lower = addr.toLowerCase()
+  const sepIdx = lower.lastIndexOf('1')
+  const data5bit: number[] = []
+  for (let i = sepIdx + 1; i < lower.length - 6; i++) {
+    const v = CHARSET.indexOf(lower[i])
+    if (v < 0) throw new Error('Invalid bech32m char: ' + lower[i])
+    data5bit.push(v)
+  }
+  // skip version word (data5bit[0] = 1 for P2TR)
+  const payload5 = data5bit.slice(1)
+  // convert 5-bit words to 8-bit bytes
+  let acc = 0, bits = 0
+  const result: number[] = []
+  for (const val of payload5) {
+    acc = (acc << 5) | val; bits += 5
+    if (bits >= 8) { bits -= 8; result.push((acc >> bits) & 0xff) }
+  }
+  return new Uint8Array(result) // 32 bytes for P2TR
+}
+
+function encodePropose(title: string, description: string, target: string, btcSats: bigint, delayStart: bigint): Uint8Array {
+  // selector: createProposal(string,string,address,uint256,bytes,uint64) = SHA256[0:4]
+  const SEL = [0x36,0x9f,0x9a,0xa4]
+  const enc = new TextEncoder()
+  const titleB  = enc.encode(title)
+  const descB   = enc.encode(description)
+  // address: decode bech32m tb1p... → 32-byte x-only pubkey (OPNet Address = 32 raw bytes)
+  const addrDecoded = bech32mDecode(target)
+  const addrB = new Uint8Array(32)
+  addrB.set(addrDecoded.slice(0, 32))
+  // uint256 btcValue (32 bytes BE)
+  const valB = new Uint8Array(32)
+  let v = btcSats; for(let i=31;i>=0;i--){valB[i]=Number(v&0xffn);v>>=8n}
+  // bytes proposalCalldata = empty (0 length)
+  const emptyB = new Uint8Array(4) // u32 length = 0
+  // uint64 delayStart (8 bytes BE)
+  const delB = new Uint8Array(8)
+  let d = delayStart; for(let i=7;i>=0;i--){delB[i]=Number(d&0xffn);d>>=8n}
+
+  function u32be(n: number){ const b=new Uint8Array(4); b[0]=(n>>>24)&0xff;b[1]=(n>>>16)&0xff;b[2]=(n>>>8)&0xff;b[3]=n&0xff; return b }
+
+  const parts = [
+    new Uint8Array(SEL),
+    u32be(titleB.length), titleB,
+    u32be(descB.length), descB,
+    addrB,
+    valB,
+    emptyB,
+    delB,
+  ]
+  const total = parts.reduce((s,p)=>s+p.length,0)
+  const out = new Uint8Array(total)
+  let off=0; for(const p of parts){out.set(p,off);off+=p.length}
+  return out
+}
+
+const mono  = { fontFamily:"'Space Mono',monospace" } as const
+const inter = { fontFamily:"'Inter',system-ui,sans-serif" } as const
+
 type WalletState = 'disconnected'|'connecting'|'connected'
 
-function WalletBadge({state,address,onConnect}:{state:WalletState;address:string;onConnect:()=>void}) {
+function WalletBadge({ state, address, onConnect }: { state:WalletState; address:string; onConnect:()=>void }) {
   if (state==='connected') return (
-    <div style={{display:'flex',alignItems:'center',gap:8,padding:'5px 14px',background:C.accentBg,border:`1px solid ${C.accentRing}`,borderRadius:20}}>
-      <span style={{width:6,height:6,borderRadius:'50%',background:C.accent,display:'inline-block'}}/>
-      <span style={{...mono,fontSize:10,color:C.accent}}>{ellipsis(address,22)}</span>
+    <div style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 14px', background:C.accentBg, border:`1px solid ${C.accentRing}`, borderRadius:20 }}>
+      <span style={{ width:6, height:6, borderRadius:'50%', background:C.accent, display:'inline-block' }}/>
+      <span style={{ ...mono, fontSize:10, color:C.accent }}>{trim(address,22)}</span>
     </div>
   )
   return (
     <button onClick={onConnect} disabled={state==='connecting'}
-      style={{padding:'6px 18px',background:C.accentBg,border:`1px solid ${C.accentRing}`,color:C.accent,...mono,fontSize:10,letterSpacing:'0.07em',cursor:'pointer',borderRadius:20,opacity:state==='connecting'?0.5:1}}>
-      {state==='connecting'?'◌ CONNECTING':'CONNECT WALLET'}
+      style={{ padding:'6px 18px', background:C.accentBg, border:`1px solid ${C.accentRing}`, color:C.accent, ...mono, fontSize:10, letterSpacing:'0.07em', cursor:'pointer', borderRadius:20, opacity:state==='connecting'?0.5:1 }}>
+      {state==='connecting' ? '◌ CONNECTING' : 'CONNECT WALLET'}
     </button>
   )
 }
 
-function VoteBar({yes,no,abs}:{yes:string;no:string;abs:string}) {
+function VoteBar({ yes, no, abs }: { yes:string; no:string; abs:string }) {
   const t=Number(yes)+Number(no)+Number(abs)||1
   return (
     <div>
-      <div style={{display:'flex',height:3,borderRadius:3,overflow:'hidden',background:C.border,margin:'8px 0'}}>
-        <div style={{width:`${(Number(yes)/t)*100}%`,background:C.green}}/>
-        <div style={{width:`${(Number(no)/t)*100}%`,background:C.red}}/>
-        <div style={{width:`${(Number(abs)/t)*100}%`,background:C.borderMid}}/>
+      <div style={{ display:'flex', height:3, borderRadius:3, overflow:'hidden', background:C.border, margin:'8px 0' }}>
+        <div style={{ width:`${(Number(yes)/t)*100}%`, background:C.green }}/>
+        <div style={{ width:`${(Number(no)/t)*100}%`, background:C.red }}/>
+        <div style={{ width:`${(Number(abs)/t)*100}%`, background:C.borderMid }}/>
       </div>
-      <div style={{display:'flex',gap:14,...mono,fontSize:9,color:C.textDim}}>
-        <span style={{color:C.green}}>FOR {pct(yes,t)}</span>
-        <span style={{color:C.red}}>AGAINST {pct(no,t)}</span>
+      <div style={{ display:'flex', gap:14, ...mono, fontSize:9, color:C.textDim }}>
+        <span style={{ color:C.green }}>FOR {pct(yes,t)}</span>
+        <span style={{ color:C.red }}>AGAINST {pct(no,t)}</span>
         <span>ABSTAIN {pct(abs,t)}</span>
       </div>
     </div>
   )
 }
 
-function Pill({state}:{state:number}) {
+function Pill({ state }: { state:number }) {
   const c=STATE_COLOR[state]??C.textSub
-  return <span style={{...mono,fontSize:9,letterSpacing:'0.09em',padding:'2px 9px',background:c+'18',border:`1px solid ${c}33`,color:c,borderRadius:4}}>{STATE_LABEL[state]??'?'}</span>
+  return <span style={{ ...mono, fontSize:9, letterSpacing:'0.09em', padding:'2px 9px', background:c+'18', border:`1px solid ${c}33`, color:c, borderRadius:4 }}>{STATE_LABEL[state]??'?'}</span>
 }
 
-function ProposalRow({p,active,onClick}:{p:Proposal;active:boolean;onClick:()=>void}) {
+function ProposalRow({ p, active, onClick }: { p:Proposal; active:boolean; onClick:()=>void }) {
   return (
-    <div onClick={onClick} style={{padding:'13px 14px',marginBottom:3,cursor:'pointer',background:active?C.bgElevated:C.bgCard,border:`1px solid ${active?C.accent+'55':C.border}`,borderRadius:7,position:'relative',transition:'all .1s'}}>
-      {active&&<div style={{position:'absolute',left:0,top:5,bottom:5,width:2,background:C.accent,borderRadius:2}}/>}
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-        <span style={{...mono,fontSize:9,color:C.textSub}}>#{p.proposalId}</span>
+    <div onClick={onClick} style={{ padding:'13px 14px', marginBottom:3, cursor:'pointer', background:active?C.bgElevated:C.bgCard, border:`1px solid ${active?C.accent+'55':C.border}`, borderRadius:7, position:'relative', transition:'all .1s' }}>
+      {active&&<div style={{ position:'absolute', left:0, top:5, bottom:5, width:2, background:C.accent, borderRadius:2 }}/>}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+        <span style={{ ...mono, fontSize:9, color:C.textSub }}>#{p.proposalId}</span>
         <Pill state={p.state}/>
       </div>
-      <div style={{...inter,fontSize:12,fontWeight:500,color:C.text,marginBottom:7,lineHeight:1.4}}>
-        {Number(p.btcValue)>0?`⊕ ${fmtBTC(p.btcValue)} → ${ellipsis(p.target,22)}`:`→ ${ellipsis(p.target,28)}`}
+      <div style={{ ...inter, fontSize:12, fontWeight:500, color:C.text, marginBottom:7, lineHeight:1.4 }}>
+        {Number(p.btcValue)>0?`⊕ ${fmtBTC(p.btcValue)} → ${trim(p.target,22)}`:`→ ${trim(p.target,28)}`}
       </div>
       <VoteBar yes={p.yesVotes} no={p.noVotes} abs={p.abstainVotes}/>
-      {p.state===1&&<div style={{...mono,fontSize:9,color:C.textSub,marginTop:5}}>closes {timeLeft(p.voteEnd)}</div>}
+      {p.state===1&&<div style={{ ...mono, fontSize:9, color:C.textSub, marginTop:5 }}>closes {timeLeft(p.voteEnd)}</div>}
     </div>
   )
 }
 
-function VotePanel({p,walletState,address,onVote,onConnect}:{p:Proposal;walletState:WalletState;address:string;onVote:(p:Proposal,support:number)=>Promise<void>;onConnect:()=>void}) {
-  const [voting,setVoting]=useState<number|null>(null)
-  const go=async(s:number)=>{setVoting(s);try{await onVote(p,s)}finally{setVoting(null)}}
+function VotePanel({ p, walletState, address, onVote, onConnect }: {
+  p:Proposal; walletState:WalletState; address:string
+  onVote:(p:Proposal,support:number)=>Promise<void>; onConnect:()=>void
+}) {
+  const [voting, setVoting] = useState<number|null>(null)
+  const go = async (s: number) => { setVoting(s); try { await onVote(p,s) } finally { setVoting(null) } }
+
   if (walletState!=='connected') return (
-    <div style={{textAlign:'center',padding:'18px 0'}}>
-      <div style={{...inter,fontSize:13,color:C.textSub,marginBottom:14}}>Connect your wallet to vote</div>
-      <button onClick={onConnect} style={{padding:'9px 22px',background:C.accentBg,border:`1px solid ${C.accentRing}`,color:C.accent,...mono,fontSize:10,letterSpacing:'0.07em',cursor:'pointer',borderRadius:7}}>CONNECT WALLET</button>
+    <div style={{ textAlign:'center', padding:'18px 0' }}>
+      <div style={{ ...inter, fontSize:13, color:C.textSub, marginBottom:14 }}>Connect your wallet to vote</div>
+      <button onClick={onConnect} style={{ padding:'9px 22px', background:C.accentBg, border:`1px solid ${C.accentRing}`, color:C.accent, ...mono, fontSize:10, letterSpacing:'0.07em', cursor:'pointer', borderRadius:7 }}>CONNECT WALLET</button>
     </div>
   )
+
   return (
     <>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:10}}>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:10 }}>
         {([['FOR',1,C.green,C.greenBg,C.greenRing],['AGAINST',2,C.red,C.redBg,C.redRing],['ABSTAIN',3,C.textSub,C.border+'44',C.borderMid]] as const).map(([l,v,c,bg,ring])=>(
           <button key={l} onClick={()=>go(v)} disabled={voting!==null}
-            style={{padding:'12px 0',background:voting===v?bg:C.bgCard,border:`1px solid ${voting===v?ring:C.border}`,color:voting===v?c:C.textSub,...mono,fontSize:10,letterSpacing:'0.08em',cursor:voting!==null?'not-allowed':'pointer',borderRadius:7,opacity:voting!==null&&voting!==v?0.4:1}}>
+            style={{ padding:'12px 0', background:voting===v?bg:C.bgCard, border:`1px solid ${voting===v?ring:C.border}`, color:voting===v?c:C.textSub, ...mono, fontSize:10, letterSpacing:'0.08em', cursor:voting!==null?'not-allowed':'pointer', borderRadius:7, opacity:voting!==null&&voting!==v?0.4:1 }}>
             {voting===v?'◌':l}
           </button>
         ))}
       </div>
-      <div style={{...mono,fontSize:9,color:C.textDim}}>signing as <span style={{color:C.textSub}}>{ellipsis(address,26)}</span></div>
+      <div style={{ ...mono, fontSize:9, color:C.textDim }}>signing as <span style={{ color:C.textSub }}>{trim(address,26)}</span></div>
     </>
   )
 }
 
-function Detail({p,walletState,address,onVote,onConnect}:{p:Proposal|null;walletState:WalletState;address:string;onVote:(p:Proposal,support:number)=>Promise<void>;onConnect:()=>void}) {
-  const [execLoading,setExecLoading]=useState(false)
+function Detail({ p, walletState, address, onVote, onConnect }: {
+  p:Proposal|null; walletState:WalletState; address:string
+  onVote:(p:Proposal,support:number)=>Promise<void>; onConnect:()=>void
+}) {
+  const [execLoading, setExecLoading] = useState(false)
   if (!p) return (
-    <div style={{height:'100%',display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div style={{textAlign:'center',color:C.textDim,...mono,fontSize:11}}>
-        <div style={{fontSize:28,marginBottom:10}}>◈</div>SELECT A PROPOSAL
+    <div style={{ height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}>
+      <div style={{ textAlign:'center', color:C.textDim, ...mono, fontSize:11 }}>
+        <div style={{ fontSize:28, marginBottom:10 }}>◈</div>SELECT A PROPOSAL
       </div>
     </div>
   )
   const total=Number(p.yesVotes)+Number(p.noVotes)+Number(p.abstainVotes)
   const canExec=p.state===2&&Date.now()/1e3>=p.execAfter
   const locked=p.state===2&&!canExec
-  const doExec=async()=>{setExecLoading(true);try{await onVote(p,0)}finally{setExecLoading(false)}}
+  const doExec=async()=>{ setExecLoading(true); try{await onVote(p,0)}finally{setExecLoading(false)} }
+
   return (
-    <div style={{padding:28,overflowY:'auto',height:'100%'}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:22}}>
+    <div style={{ padding:28, overflowY:'auto', height:'100%' }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:22 }}>
         <div>
-          <div style={{...mono,fontSize:9,color:C.textSub,marginBottom:4}}>PROPOSAL #{p.proposalId}</div>
-          <div style={{...inter,fontSize:14,fontWeight:600,color:C.text,lineHeight:1.4}}>
-            {Number(p.btcValue)>0?`Transfer ${fmtBTC(p.btcValue)}`:`Call ${ellipsis(p.target,24)}`}
+          <div style={{ ...mono, fontSize:9, color:C.textSub, marginBottom:4 }}>PROPOSAL #{p.proposalId}</div>
+          <div style={{ ...inter, fontSize:14, fontWeight:600, color:C.text, lineHeight:1.4 }}>
+            {Number(p.btcValue)>0?`Transfer ${fmtBTC(p.btcValue)}`:`Call ${trim(p.target,24)}`}
           </div>
         </div>
         <Pill state={p.state}/>
       </div>
-      <div style={{background:C.bgCard,border:`1px solid ${C.border}`,borderRadius:8,padding:16,marginBottom:14}}>
-        <div style={{...mono,fontSize:9,color:C.textDim,letterSpacing:'0.12em',marginBottom:14}}>VOTE TALLY</div>
+
+      <div style={{ background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:8, padding:16, marginBottom:14 }}>
+        <div style={{ ...mono, fontSize:9, color:C.textDim, letterSpacing:'0.12em', marginBottom:14 }}>VOTE TALLY</div>
         <VoteBar yes={p.yesVotes} no={p.noVotes} abs={p.abstainVotes}/>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginTop:14}}>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginTop:14 }}>
           {([['FOR',p.yesVotes,C.green],['AGAINST',p.noVotes,C.red],['ABSTAIN',p.abstainVotes,C.textSub]] as const).map(([l,v,c])=>(
-            <div key={l} style={{textAlign:'center',padding:'10px 0',background:C.bg,borderRadius:6}}>
-              <div style={{...inter,fontSize:17,fontWeight:700,color:c}}>{fmt(v)}</div>
-              <div style={{...mono,fontSize:8,color:C.textDim,marginTop:2,letterSpacing:'0.1em'}}>{l}</div>
+            <div key={l} style={{ textAlign:'center', padding:'10px 0', background:C.bg, borderRadius:6 }}>
+              <div style={{ ...inter, fontSize:17, fontWeight:700, color:c }}>{fmt(v)}</div>
+              <div style={{ ...mono, fontSize:8, color:C.textDim, marginTop:2, letterSpacing:'0.1em' }}>{l}</div>
             </div>
           ))}
         </div>
-        <div style={{borderTop:`1px solid ${C.border}`,marginTop:12,paddingTop:10,display:'flex',justifyContent:'space-between',...mono,fontSize:9,color:C.textSub}}>
+        <div style={{ borderTop:`1px solid ${C.border}`, marginTop:12, paddingTop:10, display:'flex', justifyContent:'space-between', ...mono, fontSize:9, color:C.textSub }}>
           <span>{fmt(total)} votes cast</span>
-          {p.state===1&&<span style={{color:C.accent}}>closes {timeLeft(p.voteEnd)}</span>}
+          {p.state===1&&<span style={{ color:C.accent }}>closes {timeLeft(p.voteEnd)}</span>}
           {p.state===0&&<span>opens {timeLeft(p.voteStart)}</span>}
         </div>
       </div>
-      <div style={{background:C.bgCard,border:`1px solid ${C.border}`,borderRadius:8,padding:16,marginBottom:14}}>
-        <div style={{...mono,fontSize:9,color:C.textDim,letterSpacing:'0.12em',marginBottom:8}}>TARGET CONTRACT</div>
-        <div style={{...mono,fontSize:11,color:C.textSub,wordBreak:'break-all',lineHeight:1.7}}>{p.target}</div>
-        {Number(p.btcValue)>0&&<div style={{marginTop:10,padding:'8px 12px',background:C.bg,borderRadius:6,...mono,fontSize:12,color:'#f59e0b'}}>⊕ {fmtBTC(p.btcValue)}</div>}
+
+      <div style={{ background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:8, padding:16, marginBottom:14 }}>
+        <div style={{ ...mono, fontSize:9, color:C.textDim, letterSpacing:'0.12em', marginBottom:8 }}>TARGET CONTRACT</div>
+        <div style={{ ...mono, fontSize:11, color:C.textSub, wordBreak:'break-all', lineHeight:1.7 }}>{p.target}</div>
+        {Number(p.btcValue)>0&&<div style={{ marginTop:10, padding:'8px 12px', background:C.bg, borderRadius:6, ...mono, fontSize:12, color:'#f59e0b' }}>⊕ {fmtBTC(p.btcValue)}</div>}
       </div>
+
       {p.state===1&&(
-        <div style={{background:C.bgCard,border:`1px solid ${C.border}`,borderRadius:8,padding:16,marginBottom:14}}>
-          <div style={{...mono,fontSize:9,color:C.textDim,letterSpacing:'0.12em',marginBottom:12}}>CAST VOTE</div>
+        <div style={{ background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:8, padding:16, marginBottom:14 }}>
+          <div style={{ ...mono, fontSize:9, color:C.textDim, letterSpacing:'0.12em', marginBottom:12 }}>CAST VOTE</div>
           <VotePanel p={p} walletState={walletState} address={address} onVote={onVote} onConnect={onConnect}/>
         </div>
       )}
-      {canExec&&<button onClick={doExec} disabled={execLoading} style={{width:'100%',padding:13,background:C.greenBg,border:`1px solid ${C.greenRing}`,color:C.green,...mono,fontSize:10,letterSpacing:'0.09em',cursor:'pointer',borderRadius:8,opacity:execLoading?0.6:1}}>{execLoading?'◌ SIGNING…':'⚡ EXECUTE PROPOSAL'}</button>}
-      {locked&&<div style={{textAlign:'center',padding:13,border:`1px solid ${C.border}`,borderRadius:8,...mono,fontSize:10,color:C.textSub}}>⏳ TIMELOCK — executable in {timeLeft(p.execAfter)}</div>}
+      {canExec&&<button onClick={doExec} disabled={execLoading} style={{ width:'100%', padding:13, background:C.greenBg, border:`1px solid ${C.greenRing}`, color:C.green, ...mono, fontSize:10, letterSpacing:'0.09em', cursor:'pointer', borderRadius:8, opacity:execLoading?0.6:1 }}>{execLoading?'◌ SIGNING…':'⚡ EXECUTE PROPOSAL'}</button>}
+      {locked&&<div style={{ textAlign:'center', padding:13, border:`1px solid ${C.border}`, borderRadius:8, ...mono, fontSize:10, color:C.textSub }}>⏳ TIMELOCK — executable in {timeLeft(p.execAfter)}</div>}
     </div>
   )
 }
@@ -203,38 +289,44 @@ const FIELDS=[
   {label:'EXEC DELAY (secs)',ph:'86400',type:'number',key:'execDelay'},
 ]
 
-function DeployTab({factory,walletState,address,onConnect,notify}:{factory:FactoryInfo|null;walletState:WalletState;address:string;onConnect:()=>void;notify:(m:string,ok?:boolean)=>void}) {
-  const [ds,setDs]=useState<DeployState>('idle')
-  const [result,setResult]=useState('')
-  const [error,setError]=useState('')
-  const [form,setForm]=useState<Record<string,string>>({daoName:'',tokenName:'',tokenSymbol:'',maxSupply:'1000000',votingPeriod:'259200',quorumBps:'400',execDelay:'86400'})
+function DeployTab({ factory, walletState, address, onConnect, notify }: {
+  factory:FactoryInfo|null; walletState:WalletState; address:string; onConnect:()=>void; notify:(m:string,ok?:boolean)=>void
+}) {
+  const [ds, setDs]=useState<DeployState>('idle')
+  const [result, setResult]=useState('')
+  const [error, setError]=useState('')
+  const [form, setForm]=useState<Record<string,string>>({ daoName:'', tokenName:'', tokenSymbol:'', maxSupply:'1000000', votingPeriod:'259200', quorumBps:'400', execDelay:'86400' })
 
   const deploy=async()=>{
-    const w=window.opnet; if(!isOPWallet(w)){notify('OPWallet not connected',false);return}
+    if(!window.opnet?.web3){notify('OPWallet not connected',false);return}
     const addr=(address||'').trim()
-    if(!addr){notify('Wallet address not loaded',false);return}
+    if(!addr){notify('Wallet address not loaded — disconnect and reconnect wallet',false);return}
     if(!form.daoName||!form.tokenName||!form.tokenSymbol){notify('Fill all name fields',false);return}
     setDs('deploying');setError('')
     try{
       const res=await fetch('/DAOFactory.wasm')
-      if(!res.ok) throw new Error('DAOFactory.wasm not found')
+      if(!res.ok) throw new Error('DAOFactory.wasm not found — place it in client/public/')
       const bytecode=new Uint8Array(await res.arrayBuffer())
       const provider=new JSONRpcProvider('https://testnet.opnet.org')
       const utxos=await provider.utxoManager.getUTXOs({address:addr,mergePendingUTXOs:false,filterSpentUTXOs:true})
       if(!utxos?.length) throw new Error(`No UTXOs for ${addr} — fund with testnet BTC first`)
-      // Use deployContract directly on OPWallet — it provides signer internally
-      const r=await w.web3.deployContract({bytecode,utxos,feeRate:10,priorityFee:330n,gasSatFee:1000n} as never)
-      if(!r) throw new Error('Deployment returned null')
-      const addr0=r.contractAddress
-      setResult(addr0);setDs('done');notify(`Deployed: ${addr0}`)
+      const factory=new TransactionFactory()
+      // signDeployment auto-detects OPWallet — canonical SDK approach
+      const r=await factory.signDeployment({
+        bytecode, utxos, feeRate:10, priorityFee:330n, gasSatFee:1000n,
+        network:BTC_TESTNET as never,
+      } as never)
+      if(r.transaction[0]) await provider.sendRawTransaction(r.transaction[0],false)
+      await provider.sendRawTransaction(r.transaction[1],false)
+      setResult(r.contractAddress);setDs('done');notify(`Deployed: ${r.contractAddress}`)
     }catch(e:unknown){
       const msg=(e as Error).message??String(e)
-      console.error('[DAO deploy]',e)
       setError(msg);setDs('error');notify(msg,false)
     }
   }
 
   const inp={width:'100%',padding:'9px 12px',background:C.bg,border:`1px solid ${C.border}`,color:C.text,...mono,fontSize:11,borderRadius:6,boxSizing:'border-box' as const,outline:'none'}
+
   return(
     <div style={{maxWidth:520,margin:'32px auto',padding:'0 20px 80px'}}>
       <h2 style={{...inter,fontSize:22,fontWeight:700,color:C.text,marginBottom:4}}>Deploy Factory</h2>
@@ -247,7 +339,7 @@ function DeployTab({factory,walletState,address,onConnect,notify}:{factory:Facto
           <div>
             <div style={{...mono,fontSize:9,color:C.textDim,letterSpacing:'0.1em',marginBottom:4}}>WALLET</div>
             <div style={{...mono,fontSize:11,color:walletState==='connected'?C.green:C.textSub}}>
-              {walletState==='connected'?`● ${ellipsis(address,26)}`:'○ Not connected'}
+              {walletState==='connected'?`● ${trim(address,26)}`:'○ Not connected'}
             </div>
           </div>
           {walletState!=='connected'&&<button onClick={onConnect} style={{padding:'7px 16px',background:C.accentBg,border:`1px solid ${C.accentRing}`,color:C.accent,...mono,fontSize:9,cursor:'pointer',borderRadius:6}}>CONNECT</button>}
@@ -295,22 +387,110 @@ function DeployTab({factory,walletState,address,onConnect,notify}:{factory:Facto
   )
 }
 
-type Tab='proposals'|'treasury'|'relayer'|'deploy'
+
+const PROPOSE_FIELDS = [
+  {label:'TITLE',          ph:'Upgrade treasury multisig',  key:'title',       type:'text'},
+  {label:'DESCRIPTION',    ph:'Rationale for this proposal',key:'description', type:'text'},
+  {label:'TARGET ADDRESS', ph:'tb1p...',                    key:'target',      type:'text'},
+  {label:'BTC VALUE (sats)',ph:'0',                         key:'btcSats',     type:'number'},
+  {label:'VOTING DELAY (secs)',ph:'0',                      key:'delayStart',  type:'number'},
+]
+
+function ProposeTab({ factory, walletState, address, onConnect, notify }: {
+  factory:FactoryInfo|null; walletState:WalletState; address:string; onConnect:()=>void; notify:(m:string,ok?:boolean)=>void
+}) {
+  const [form, setForm] = useState<Record<string,string>>({title:'',description:'',target:'',btcSats:'0',delayStart:'0'})
+  const [busy, setBusy] = useState(false)
+  const [txid, setTxid] = useState('')
+
+  const submit = async () => {
+    if(!isOPWallet(window.opnet)){notify('Connect wallet first',false);return}
+    const addr=(address||'').trim()
+    if(!addr){notify('Wallet not connected',false);return}
+    if(!factory){notify('Deploy factory first',false);return}
+    const daoAddr=(factory.factoryAddress||'').trim()
+    if(!daoAddr.startsWith('tb1')){notify('No valid DAO contract address set',false);return}
+    if(!form.title.trim()){notify('Title is required',false);return}
+    if(!form.target.trim().startsWith('tb1')){notify('Target must be a tb1... taproot address',false);return}
+    setBusy(true)
+    try {
+      const calldata = encodePropose(
+        form.title.trim(), form.description.trim(), form.target.trim(),
+        BigInt(form.btcSats||'0'), BigInt(form.delayStart||'0')
+      )
+      const provider = new JSONRpcProvider('https://testnet.opnet.org')
+      const utxos = await provider.utxoManager.getUTXOs({address:addr,mergePendingUTXOs:false,filterSpentUTXOs:true})
+      if(!utxos?.length) throw new Error(`No UTXOs for ${addr} — fund wallet with testnet BTC`)
+      const tf = new TransactionFactory()
+      const signed = await tf.signInteraction({
+        from:addr, to:daoAddr, calldata:Buffer.from(calldata), utxos,
+        feeRate:10, priorityFee:330n, gasSatFee:1000n,
+        network:BTC_TESTNET as never,
+      } as never)
+      if(signed.fundingTransaction) await provider.sendRawTransaction(signed.fundingTransaction,false)
+      await provider.sendRawTransaction(signed.interactionTransaction,false)
+      setTxid('broadcast ✓')
+      notify('Proposal submitted ✓')
+    } catch(e:unknown){
+      notify((e as Error).message??'Failed',false)
+    } finally { setBusy(false) }
+  }
+
+  const inp={width:'100%',padding:'9px 12px',background:C.bg,border:`1px solid ${C.border}`,color:C.text,...mono,fontSize:11,borderRadius:6,boxSizing:'border-box' as const,outline:'none'}
+
+  return (
+    <div style={{maxWidth:520,margin:'32px auto',padding:'0 20px 80px'}}>
+      <h2 style={{...inter,fontSize:22,fontWeight:700,color:C.text,marginBottom:4}}>Create Proposal</h2>
+      <p style={{...mono,fontSize:10,color:C.textSub,marginBottom:24,lineHeight:1.8}}>
+        You must hold governance tokens to propose.<br/>
+        Target must be a deployed OPNet contract (<code style={{color:C.text}}>tb1p...</code>).
+      </p>
+      {!factory&&<div style={{padding:'12px 16px',background:C.redBg,border:`1px solid ${C.redRing}`,borderRadius:8,...mono,fontSize:10,color:C.red,marginBottom:20}}>
+        ⚠ Deploy DAOFactory first — go to the Deploy tab
+      </div>}
+      {PROPOSE_FIELDS.map(({label,ph,key,type})=>(
+        <div key={key} style={{marginBottom:12}}>
+          <div style={{...mono,fontSize:9,color:C.textDim,letterSpacing:'0.1em',marginBottom:5}}>{label}</div>
+          {key==='description'
+            ? <textarea rows={3} placeholder={ph} value={form[key]}
+                onChange={e=>setForm(f=>({...f,[key]:e.target.value}))}
+                style={{...inp,resize:'vertical' as const}}/>
+            : <input type={type} placeholder={ph} value={form[key]}
+                onChange={e=>setForm(f=>({...f,[key]:e.target.value}))}
+                style={inp}/>
+          }
+        </div>
+      ))}
+      <button onClick={walletState==='connected'?submit:onConnect}
+        disabled={busy}
+        style={{width:'100%',padding:13,background:walletState==='connected'?C.accentBg:C.bgCard,
+          border:`1px solid ${walletState==='connected'?C.accentRing:C.border}`,
+          color:walletState==='connected'?C.accent:C.textDim,
+          ...mono,fontSize:10,letterSpacing:'0.09em',
+          cursor:busy?'not-allowed':'pointer',borderRadius:8,opacity:busy?0.6:1}}>
+        {busy?'⏳ SIGNING…':walletState==='connected'?'SUBMIT PROPOSAL':'CONNECT WALLET'}
+      </button>
+      {txid&&<div style={{marginTop:14,padding:'10px 14px',background:C.greenBg,border:`1px solid ${C.greenRing}`,borderRadius:8,...mono,fontSize:10,color:C.green}}>{txid}</div>}
+    </div>
+  )
+}
+
+type Tab='proposals'|'treasury'|'relayer'|'propose'|'deploy'
 type Filter='all'|'active'|'pending'|'closed'
 
 export default function App() {
-  const [tab,setTab]           = useState<Tab>('proposals')
-  const [filter,setFilter]     = useState<Filter>('all')
-  const [proposals]            = useState<Proposal[]>(DEMO)
-  const [selected,setSelected] = useState<Proposal|null>(DEMO[0])
-  const [factory,setFactory]   = useState<FactoryInfo|null>(null)
-  const [relayer,setRelayer]   = useState<RelayerStatus|null>(null)
-  const [toast,setToast]       = useState<{msg:string;ok:boolean}|null>(null)
-  const [health,setHealth]     = useState('…')
-  const [walletState,setWalletState] = useState<WalletState>('disconnected')
-  const [address,setAddress]   = useState('')
+  const [tab, setTab]           = useState<Tab>('proposals')
+  const [filter, setFilter]     = useState<Filter>('all')
+  const [proposals]             = useState<Proposal[]>(DEMO)
+  const [selected, setSelected] = useState<Proposal|null>(DEMO[0])
+  const [factory, setFactory]   = useState<FactoryInfo|null>(null)
+  const [relayer, setRelayer]   = useState<RelayerStatus|null>(null)
+  const [toast, setToast]       = useState<{msg:string;ok:boolean}|null>(null)
+  const [health, setHealth]     = useState('…')
+  const [walletState, setWalletState] = useState<WalletState>('disconnected')
+  const [address, setAddress]   = useState('')
 
-  const notify=useCallback((msg:string,ok=true)=>{setToast({msg,ok});setTimeout(()=>setToast(null),4000)},[])
+  const notify=useCallback((msg:string,ok=true)=>{setToast({msg,ok});setTimeout(()=>setToast(null),3500)},[])
 
   useEffect(()=>{
     const w=window.opnet; if(!w) return
@@ -335,35 +515,32 @@ export default function App() {
   },[notify])
 
   const handleVote=useCallback(async(p:Proposal,support:number)=>{
-    const w=window.opnet
-    if(!isOPWallet(w)){notify('Connect wallet first',false);return}
+    if(!isOPWallet(window.opnet)){notify('Connect wallet first',false);return}
     const addr=(address||'').trim()
     if(!addr){notify('Wallet address not loaded — disconnect and reconnect',false);return}
     const contractAddr=(p.target||'').trim()
     if(!contractAddr){notify('Proposal has no target address',false);return}
-    notify('Fetching UTXOs…')
+    notify('Preparing transaction…')
     try{
+      notify('Step 1: loading modules…')
+      notify('Step 2: fetching UTXOs…')
       const provider=new JSONRpcProvider('https://testnet.opnet.org')
       const utxos=await provider.utxoManager.getUTXOs({address:addr,mergePendingUTXOs:false,filterSpentUTXOs:true})
       if(!utxos?.length) throw new Error(`No UTXOs for ${addr} — fund wallet with testnet BTC first`)
-      notify(`Signing (${utxos.length} UTXO${utxos.length===1?'':'s'})…`)
-      const calldata=new Uint8Array(support===0?encodeExec(p.proposalId):encodeVote(p.proposalId,support))
-      // Call signAndBroadcastInteraction directly — minimal params, no null fields
-      const [fund,interact]=await w.web3.signAndBroadcastInteraction({
-        to:contractAddr,
-        calldata,
-        utxos,
-        feeRate:10,
-        priorityFee:330n,
-        gasSatFee:1000n,
+      notify(`Step 3: signing (${utxos.length} UTXOs)…`)
+      const calldata=Buffer.from(support===0?encodeExec(p.proposalId):encodeVote(p.proposalId,support))
+      const factory=new TransactionFactory()
+      const signed=await factory.signInteraction({
+        from:addr, to:contractAddr, calldata, utxos,
+        feeRate:10, priorityFee:330n, gasSatFee:1000n,
         network:BTC_TESTNET as never,
       } as never)
-      console.log('[DAO] fund tx:', fund, 'interact tx:', interact)
-      const label=support===0?'Execute':['','FOR','AGAINST','ABSTAIN'][support]
-      notify(`${label} broadcast ✓`)
+      if(signed.fundingTransaction) await provider.sendRawTransaction(signed.fundingTransaction,false)
+      await provider.sendRawTransaction(signed.interactionTransaction,false)
+      notify(`${support===0?'Execute':['','FOR','AGAINST','ABSTAIN'][support]} transaction broadcast ✓`)
     }catch(e:unknown){
       const err=e as Error
-      console.error('[DAO] handleVote error:', err.message, err.stack)
+      console.error('[DAO vote error]',err)
       notify(err.message??'Transaction failed',false)
     }
   },[address,notify])
@@ -386,6 +563,7 @@ export default function App() {
         button,a{transition:opacity .12s,border-color .12s,background .12s}
         input:focus,select:focus{outline:none;border-color:${C.borderMid}!important}
       `}</style>
+
       <header style={{height:54,borderBottom:`1px solid ${C.border}`,background:C.bgCard,display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0 22px',position:'sticky',top:0,zIndex:100}}>
         <div style={{display:'flex',alignItems:'center',gap:14}}>
           <div style={{width:30,height:30,borderRadius:8,background:C.accentBg,border:`1px solid ${C.accentRing}`,display:'grid',placeItems:'center',color:C.accent,fontSize:15}}>◈</div>
@@ -397,13 +575,14 @@ export default function App() {
         </div>
         <div style={{display:'flex',alignItems:'center',gap:18}}>
           <nav style={{display:'flex'}}>
-            {(['proposals','treasury','relayer','deploy'] as Tab[]).map(t=>(
+            {(['proposals','treasury','relayer','propose','deploy'] as Tab[]).map(t=>(
               <button key={t} onClick={()=>setTab(t)} style={{background:'none',border:'none',borderBottom:tab===t?`2px solid ${C.accent}`:'2px solid transparent',...mono,fontSize:9,letterSpacing:'0.07em',color:tab===t?C.text:C.textSub,padding:'4px 11px',cursor:'pointer',textTransform:'uppercase',marginTop:2}}>{t}</button>
             ))}
           </nav>
           <WalletBadge state={walletState} address={address} onConnect={connectWallet}/>
         </div>
       </header>
+
       {tab==='proposals'&&(
         <div style={{display:'grid',gridTemplateColumns:'310px 1fr',height:'calc(100vh - 54px - 30px)'}}>
           <aside style={{borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',background:C.bgCard}}>
@@ -424,6 +603,7 @@ export default function App() {
           </main>
         </div>
       )}
+
       {tab==='treasury'&&(
         <div style={{maxWidth:640,margin:'32px auto',padding:'0 20px'}}>
           <h2 style={{...inter,fontSize:22,fontWeight:700,color:C.text,marginBottom:22}}>Treasury</h2>
@@ -438,8 +618,18 @@ export default function App() {
               ))}
             </div>
           </div>
+          <div style={{background:C.bgCard,border:`1px solid ${C.border}`,borderRadius:8,padding:16}}>
+            <div style={{...mono,fontSize:9,color:C.textDim,letterSpacing:'0.12em',marginBottom:12}}>PENDING TIMELOCK OPS</div>
+            {[['Dev Fund — 0.5 BTC','18h 24m'],['MotoSwap LP — 50K OPN','5d 2h']].map(([l,e])=>(
+              <div key={l} style={{display:'flex',justifyContent:'space-between',padding:'10px 12px',background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,marginBottom:6}}>
+                <span style={{...inter,fontSize:12,color:C.textSub}}>{l}</span>
+                <span style={{...mono,fontSize:10,color:C.accent}}>{e}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
+
       {tab==='relayer'&&(
         <div style={{maxWidth:640,margin:'32px auto',padding:'0 20px'}}>
           <h2 style={{...inter,fontSize:22,fontWeight:700,color:C.text,marginBottom:22}}>BTC Relayer</h2>
@@ -449,6 +639,9 @@ export default function App() {
                 ['STATUS',relayer.status.toUpperCase(),relayer.status==='running'?C.green:C.red],
                 ['NETWORK',relayer.network.toUpperCase(),C.textSub],
                 ['PENDING',String(relayer.pending),C.accent],
+                ['FULFILLED',String(relayer.fulfilled),C.blue],
+                ['SAFETY CAP',fmtBTC(relayer.safetyCapSats),'#f59e0b'],
+                ['MIN CONFS',String(relayer.minConfirmations),C.textSub],
               ]:[['STATUS','—',C.textDim],['NETWORK','—',C.textDim],['PENDING','—',C.textDim]]).map(([l,v,c])=>(
                 <div key={l} style={{padding:12,background:C.bg,border:`1px solid ${C.border}`,borderRadius:6}}>
                   <div style={{...mono,fontSize:8,color:C.textDim,letterSpacing:'0.1em',marginBottom:4}}>{l}</div>
@@ -457,13 +650,24 @@ export default function App() {
               ))}
             </div>
           </div>
+          <div style={{background:C.bgCard,border:`1px solid ${C.border}`,borderRadius:8,padding:16,...mono,fontSize:10,color:C.textSub,lineHeight:2}}>
+            <div style={{color:C.textDim,marginBottom:8,fontSize:9,letterSpacing:'0.1em'}}>HOW IT WORKS</div>
+            Listens for <span style={{color:C.text}}>TreasuryBTCTransfer</span> events from executed proposals.<br/>
+            Waits for {relayer?.minConfirmations??3} confirmations then broadcasts the BTC tx.<br/>
+            Safety cap: <span style={{color:'#f59e0b'}}>{relayer?fmtBTC(relayer.safetyCapSats):'0.1 BTC'}</span> per transfer.<br/>
+            Set <span style={{color:C.text}}>RELAYER_KEY</span> env var to enable live signing.
+          </div>
         </div>
       )}
+
+      {tab==='propose'&&<ProposeTab factory={factory} walletState={walletState} address={address} onConnect={connectWallet} notify={notify}/>}
+
       {tab==='deploy'&&<DeployTab factory={factory} walletState={walletState} address={address} onConnect={connectWallet} notify={notify}/>}
+
       <div style={{position:'fixed',bottom:0,left:0,right:0,height:30,borderTop:`1px solid ${C.border}`,background:C.bgCard,display:'flex',alignItems:'center',gap:22,padding:'0 20px'}}>
         {[
           ['API',health,health==='online'?C.green:health==='offline'?C.red:C.textSub],
-          ['FACTORY',factory?ellipsis(factory.factoryAddress):'not set',factory?C.textSub:C.textDim],
+          ['FACTORY',factory?trim(factory.factoryAddress):'not set',factory?C.textSub:C.textDim],
           ['NETWORK',factory?.network??'testnet',C.textDim],
           ['DAOS',factory?String(factory.totalDAOs):'—',C.textDim],
           ['PROPOSALS',String(proposals.length),C.textDim],
@@ -474,6 +678,7 @@ export default function App() {
           </div>
         ))}
       </div>
+
       {toast&&(
         <div style={{position:'fixed',bottom:42,right:20,background:toast.ok?C.greenBg:C.redBg,border:`1px solid ${toast.ok?C.greenRing:C.redRing}`,color:toast.ok?C.green:C.red,padding:'10px 16px',...inter,fontSize:12,fontWeight:500,borderRadius:8,zIndex:9999,maxWidth:380,boxShadow:'0 4px 24px #00000066'}}>
           {toast.msg}
