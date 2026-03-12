@@ -391,7 +391,7 @@ function DeployTab({ factory, walletState, address, onConnect, notify }: {
 const PROPOSE_FIELDS = [
   {label:'TITLE',          ph:'Upgrade treasury multisig',  key:'title',       type:'text'},
   {label:'DESCRIPTION',    ph:'Rationale for this proposal',key:'description', type:'text'},
-  {label:'TARGET ADDRESS', ph:'tb1p...',                    key:'target',      type:'text'},
+  {label:'TARGET ADDRESS', ph:'bc1p... or opt1...',                    key:'target',      type:'text'},
   {label:'BTC VALUE (sats)',ph:'0',                         key:'btcSats',     type:'number'},
   {label:'VOTING DELAY (secs)',ph:'0',                      key:'delayStart',  type:'number'},
 ]
@@ -409,9 +409,9 @@ function ProposeTab({ factory, walletState, address, onConnect, notify }: {
     if(!addr){notify('Wallet not connected',false);return}
     if(!factory){notify('Deploy factory first',false);return}
     const daoAddr=(factory.factoryAddress||'').trim()
-    if(!daoAddr.startsWith('tb1')){notify('No valid DAO contract address set',false);return}
+    if(!daoAddr){notify('No valid DAO contract address set',false);return}
     if(!form.title.trim()){notify('Title is required',false);return}
-    if(!form.target.trim().startsWith('tb1')){notify('Target must be a tb1... taproot address',false);return}
+    if(!form.target.trim()){notify('Target address is required',false);return}
     setBusy(true)
     try {
       const calldata = encodePropose(
@@ -443,7 +443,7 @@ function ProposeTab({ factory, walletState, address, onConnect, notify }: {
       <h2 style={{...inter,fontSize:22,fontWeight:700,color:C.text,marginBottom:4}}>Create Proposal</h2>
       <p style={{...mono,fontSize:10,color:C.textSub,marginBottom:24,lineHeight:1.8}}>
         You must hold governance tokens to propose.<br/>
-        Target must be a deployed OPNet contract (<code style={{color:C.text}}>tb1p...</code>).
+        Target must be a deployed OPNet contract (<code style={{color:C.text}}>bc1p...</code> or <code style={{color:C.text}}>opt1...</code>).
       </p>
       {!factory&&<div style={{padding:'12px 16px',background:C.redBg,border:`1px solid ${C.redRing}`,borderRadius:8,...mono,fontSize:10,color:C.red,marginBottom:20}}>
         ⚠ Deploy DAOFactory first — go to the Deploy tab
