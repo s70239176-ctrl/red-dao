@@ -310,7 +310,7 @@ function DeployTab({ factory, walletState, address, onConnect, notify }: {
       const res=await fetch('/DAOFactory.wasm')
       if(!res.ok) throw new Error('DAOFactory.wasm not found — place it in client/public/')
       const bytecode=new Uint8Array(await res.arrayBuffer())
-      const provider=new JSONRpcProvider('https://testnet.opnet.org')
+      const provider=new JSONRpcProvider('https://regtest.opnet.org')
       const utxos=await provider.utxoManager.getUTXOs({address:addr,mergePendingUTXOs:false,filterSpentUTXOs:true})
       if(!utxos?.length) throw new Error(`No UTXOs for ${addr} — fund with testnet BTC first`)
       const challenge = await (provider as any).getChallenge()
@@ -421,7 +421,7 @@ function ProposeTab({ factory, walletState, address, onConnect, notify }: {
         form.title.trim(), form.description.trim(), form.target.trim(),
         BigInt(form.btcSats||'0'), BigInt(form.delayStart||'0')
       )
-      const provider = new JSONRpcProvider('https://testnet.opnet.org')
+      const provider = new JSONRpcProvider('https://regtest.opnet.org')
       const utxos = await provider.utxoManager.getUTXOs({address:addr,mergePendingUTXOs:false,filterSpentUTXOs:true})
       if(!utxos?.length) throw new Error(`No UTXOs for ${addr} — fund wallet with testnet BTC`)
       const contractPubKey = await provider.getPublicKeyInfo(daoAddr)
@@ -526,7 +526,7 @@ export default function App() {
     notify('Preparing transaction…')
     try{
       notify('Fetching UTXOs…')
-      const provider=new JSONRpcProvider('https://testnet.opnet.org')
+      const provider=new JSONRpcProvider('https://regtest.opnet.org')
       const utxos=await provider.utxoManager.getUTXOs({address:addr,mergePendingUTXOs:false,filterSpentUTXOs:true})
       if(!utxos?.length) throw new Error(`No UTXOs for ${addr} — fund wallet with testnet BTC first`)
       const calldata=Buffer.from(support===0?encodeExec(p.proposalId):encodeVote(p.proposalId,support))

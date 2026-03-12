@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express'
 export const daoRouter = Router()
-const RPC = process.env.OPNET_RPC || 'https://testnet.opnet.org'
+const RPC = process.env.OPNET_RPC || 'https://regtest.opnet.org'
 const FACTORY = process.env.FACTORY_ADDRESS || ''
 const NETWORK = process.env.OPNET_NETWORK || 'testnet'
 async function opnetCall(to: string, calldata: string) {

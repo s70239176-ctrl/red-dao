@@ -8,7 +8,7 @@ import { relayerRouter } from './routes/relayer'
 const app = express()
 const PORT = parseInt(process.env.PORT || '3000', 10)
 const DIST_PUBLIC = path.resolve(process.cwd(), 'dist', 'public')
-app.use(helmet({ contentSecurityPolicy: { directives: { defaultSrc:["'self'"], scriptSrc:["'self'","'unsafe-inline'"], styleSrc:["'self'","'unsafe-inline'",'https://fonts.googleapis.com','https://fonts.gstatic.com'], fontSrc:["'self'",'https://fonts.gstatic.com'], connectSrc:["'self'",'https://testnet.opnet.org'], imgSrc:["'self'",'data:'] } } }))
+app.use(helmet({ contentSecurityPolicy: { directives: { defaultSrc:["'self'"], scriptSrc:["'self'","'unsafe-inline'"], styleSrc:["'self'","'unsafe-inline'",'https://fonts.googleapis.com','https://fonts.gstatic.com'], fontSrc:["'self'",'https://fonts.gstatic.com'], connectSrc:["'self'",'https://regtest.opnet.org'], imgSrc:["'self'",'data:'] } } }))
 app.use(cors())
 app.use(express.json({ limit: '256kb' }))
 app.use('/api/dao', daoRouter)
