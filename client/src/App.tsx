@@ -498,7 +498,7 @@ function ProposeTab({ factory, walletState, address, onConnect, notify }: {
           }
         </div>
       ))}
-      <button onClick={walletState==='connected'?submit:onConnect}
+      <button onClick={SIMULATION_MODE||walletState==='connected'?submit:onConnect}
         disabled={busy}
         style={{width:'100%',padding:13,background:walletState==='connected'?C.accentBg:C.bgCard,
           border:`1px solid ${walletState==='connected'?C.accentRing:C.border}`,
