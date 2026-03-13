@@ -416,8 +416,8 @@ const PROPOSE_FIELDS = [
   {label:'VOTING DELAY (secs)',ph:'0',                      key:'delayStart',  type:'number'},
 ]
 
-function ProposeTab({ factory, walletState, address, onConnect, notify }: {
-  factory:FactoryInfo|null; walletState:WalletState; address:string; onConnect:()=>void; notify:(m:string,ok?:boolean)=>void
+function ProposeTab({ factory, walletState, address, onConnect, notify, setTab, setProposals }: {
+  factory:FactoryInfo|null; walletState:WalletState; address:string; onConnect:()=>void; notify:(m:string,ok?:boolean)=>void; setTab:(t:string)=>void; setProposals:(fn:(p:any[])=>any[])=>void
 }) {
   const [form, setForm] = useState<Record<string,string>>({title:'',description:'',target:'',btcSats:'0',delayStart:'0'})
   const [busy, setBusy] = useState(false)
@@ -717,7 +717,7 @@ export default function App() {
         </div>
       )}
 
-      {tab==='propose'&&<ProposeTab factory={factory} walletState={walletState} address={address} onConnect={connectWallet} notify={notify}/>}
+      {tab==='propose'&&<ProposeTab factory={factory} walletState={walletState} address={address} onConnect={connectWallet} notify={notify} setTab={setTab} setProposals={setProposals}/>}
 
       {tab==='deploy'&&<DeployTab factory={factory} walletState={walletState} address={address} onConnect={connectWallet} notify={notify}/>}
 
