@@ -3,6 +3,15 @@ import { JSONRpcProvider } from 'opnet'
 import { TransactionFactory, isOPWallet } from '@btc-vision/transaction'
 import { api, type FactoryInfo, type Proposal, type RelayerStatus } from './api'
 
+const SIMULATION_MODE = true
+
+function simFakeAddress() {
+  const chars = '023456789acdefghjklmnpqrstuvwxyz'
+  let s = 'bcrt1p'
+  for(let i=0;i<38;i++) s+=chars[Math.floor(Math.random()*chars.length)]
+  return s
+}
+
 const STATE_LABEL = ['PENDING', 'ACTIVE', 'SUCCEEDED', 'DEFEATED', 'EXECUTED', 'CANCELLED']
 
 const C = {
@@ -307,6 +316,14 @@ function DeployTab({ factory, walletState, address, onConnect, notify }: {
     if(!form.daoName||!form.tokenName||!form.tokenSymbol){notify('Fill all name fields',false);return}
     setDs('deploying');setError('')
     try{
+      if(typeof SIMULATION_MODE !== 'undefined' && SIMULATION_MODE){
+        const chars='023456789acdefghjklmnpqrstuvwxyz'
+        let fake='bcrt1p'
+        for(let i=0;i<38;i++) fake+=chars[Math.floor(Math.random()*chars.length)]
+        setResult(fake);setDs('done')
+        notify('Simulated deploy ✓ — save this address for Railway when mainnet is live')
+        return
+      }
       const res=await fetch('/DAOFactory.wasm')
       if(!res.ok) throw new Error('DAOFactory.wasm not found — place it in client/public/')
       const bytecode=new Uint8Array(await res.arrayBuffer())
@@ -410,6 +427,24 @@ function ProposeTab({ factory, walletState, address, onConnect, notify }: {
     if(!isOPWallet(window.opnet)){notify('Connect wallet first',false);return}
     const addr=(address||'').trim()
     if(!addr){notify('Wallet not connected',false);return}
+    if(SIMULATION_MODE){
+      const fake = {
+        proposalId:String(Date.now()).slice(-6),
+        proposer:'sim-user',
+        target:form.target||'bcrt1psimulated000target',
+        btcValue:String(Number(form.btcSats)||0),
+        voteStart:Date.now()/1e3,
+        voteEnd:Date.now()/1e3+604800,
+        yesVotes:'0',noVotes:'0',abstainVotes:'0',
+        state:1,execAfter:0,
+      } as Proposal
+      setProposals(prev=>[fake,...prev])
+      setSelected(fake)
+      setTab('proposals' as any)
+      notify('Proposal simulated ✓ — check the proposals list')
+      setBusy(false)
+      return
+    }
     if(!factory){notify('Deploy factory first',false);return}
     const daoAddr=(factory.factoryAddress||'').trim()
     if(!daoAddr){notify('No valid DAO contract address set',false);return}
@@ -483,7 +518,7 @@ type Filter='all'|'active'|'pending'|'closed'
 export default function App() {
   const [tab, setTab]           = useState<Tab>('proposals')
   const [filter, setFilter]     = useState<Filter>('all')
-  const [proposals]             = useState<Proposal[]>(DEMO)
+  const [proposals, setProposals] = useState<Proposal[]>(DEMO)
   const [selected, setSelected] = useState<Proposal|null>(DEMO[0])
   const [factory, setFactory]   = useState<FactoryInfo|null>(null)
   const [relayer, setRelayer]   = useState<RelayerStatus|null>(null)
@@ -523,6 +558,21 @@ export default function App() {
     if(!factory){notify('No DAO deployed yet — go to Deploy tab first',false);return}
     const contractAddr=(factory.factoryAddress||'').trim()
     if(!contractAddr){notify('No DAO contract address configured',false);return}
+    if(SIMULATION_MODE){
+      const w=1000+Math.floor(Math.random()*9000)
+      setProposals(prev=>prev.map(x=>x.proposalId!==p.proposalId?x:{...x,
+        yesVotes:    support===1?String(Number(x.yesVotes)+w)    :x.yesVotes,
+        noVotes:     support===2?String(Number(x.noVotes)+w)     :x.noVotes,
+        abstainVotes:support===3?String(Number(x.abstainVotes)+w):x.abstainVotes,
+      }))
+      setSelected(prev=>!prev||prev.proposalId!==p.proposalId?prev:{...prev,
+        yesVotes:    support===1?String(Number(prev.yesVotes)+w)    :prev.yesVotes,
+        noVotes:     support===2?String(Number(prev.noVotes)+w)     :prev.noVotes,
+        abstainVotes:support===3?String(Number(prev.abstainVotes)+w):prev.abstainVotes,
+      })
+      notify(support===0?'Execute simulated ✓':`${['','FOR','AGAINST','ABSTAIN'][support]} vote cast ✓ (+${w.toLocaleString()} votes)`)
+      return
+    }
     notify('Preparing transaction…')
     try{
       notify('Fetching UTXOs…')
@@ -584,6 +634,12 @@ export default function App() {
         </div>
       </header>
 
+      {SIMULATION_MODE&&(
+        <div style={{padding:'8px 16px',background:'#e8a93014',borderBottom:'1px solid #e8a93030',display:'flex',gap:10,alignItems:'center',...mono,fontSize:10,color:'#e8a930'}}>
+          <span style={{fontWeight:700}}>SIMULATION MODE</span>
+          <span style={{color:'#6b7280'}}>No wallet needed — all actions are simulated. OPNet mainnet launches March 17, 2026.</span>
+        </div>
+      )}
       {tab==='proposals'&&(
         <div style={{display:'grid',gridTemplateColumns:'310px 1fr',height:'calc(100vh - 54px - 30px)'}}>
           <aside style={{borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',background:C.bgCard}}>
