@@ -424,14 +424,12 @@ function ProposeTab({ factory, walletState, address, onConnect, notify }: {
   const [txid, setTxid] = useState('')
 
   const submit = async () => {
-    if(!isOPWallet(window.opnet)){notify('Connect wallet first',false);return}
-    const addr=(address||'').trim()
-    if(!addr){notify('Wallet not connected',false);return}
     if(SIMULATION_MODE){
+      if(!form.title.trim()){notify('Title is required',false);return}
       const fake = {
         proposalId:String(Date.now()).slice(-6),
         proposer:'sim-user',
-        target:form.target||'bcrt1psimulated000target',
+        target:form.target.trim()||'bcrt1psimulated000target',
         btcValue:String(Number(form.btcSats)||0),
         voteStart:Date.now()/1e3,
         voteEnd:Date.now()/1e3+604800,
@@ -441,10 +439,12 @@ function ProposeTab({ factory, walletState, address, onConnect, notify }: {
       setProposals(prev=>[fake,...prev])
       setSelected(fake)
       setTab('proposals' as any)
-      notify('Proposal simulated ✓ — check the proposals list')
-      setBusy(false)
+      notify('Proposal simulated ✓ — visible in proposals list')
       return
     }
+    if(!isOPWallet(window.opnet)){notify('Connect wallet first',false);return}
+    const addr=(address||'').trim()
+    if(!addr){notify('Wallet not connected',false);return}
     if(!factory){notify('Deploy factory first',false);return}
     const daoAddr=(factory.factoryAddress||'').trim()
     if(!daoAddr){notify('No valid DAO contract address set',false);return}
